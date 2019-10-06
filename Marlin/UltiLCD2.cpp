@@ -18,7 +18,7 @@
 
 // coefficient for the exponential moving average
 // K1 defined in Configuration.h in the PID settings
-#define K2 (1.0-K1)
+#define K2 (1.0f-K1)
 
 #define LCD_CHARS_PER_LINE 20
 
@@ -29,7 +29,7 @@ float dsp_temperature_bed = 20.0;
 char lcd_status_message[LCD_CHARS_PER_LINE+1] = {0};
 
 //#define SPECIAL_STARTUP
-#define MILLIS_GLOW  (1000L / 40L)
+#define MILLIS_GLOW  (1000L / 30L)
 // #define MILLIS_GLOW  (25L)
 static unsigned long glow_millis;
 
@@ -54,15 +54,13 @@ void lcd_init()
     glow_millis = millis() + 750;
     led_glow = led_glow_dir = 0;
 
-#if EXTRUDERS > 1
-    active_extruder = (swapExtruders() ? 1 : 0);
-#endif // EXTRUDERS
-
     // initialize menu stack and show start animation
     lcd_clearstatus();
     menu.init_menu(menu_t(lcd_menu_main, MAIN_MENU_ITEM_POS(0)), false);
     menu.add_menu(menu_t(lcd_menu_startup), false);
+#if FAN2_PIN != LED_PIN
     analogWrite(LED_PIN, 0);
+#endif
 }
 
 void lcd_update()
@@ -131,10 +129,17 @@ void lcd_update()
 			strcat_P(buffer, PSTR("ER07"));
             break;
 		default:
+		    char strReason[8];
+		    int_to_string(StoppedReason(), strReason);
+            lcd_lib_draw_string_center(20, strReason);
 			strcat_P(buffer, PSTR("support"));
+			break;
         }
         lcd_lib_draw_string_centerP(40, PSTR("Go to:"));
         lcd_lib_draw_string_center(50, buffer);
+        int_to_string(freeMemory(), buffer, PSTR(" bytes free"));
+        lcd_lib_draw_string_center(30, buffer);
+
         LED_GLOW_ERROR
         lcd_lib_update_screen();
     }
@@ -203,12 +208,16 @@ void lcd_menu_startup()
     }
     lcd_lib_update_screen();
 
+#if FAN2_PIN != LED_PIN
     if (led_mode == LED_MODE_ALWAYS_ON)
         analogWrite(LED_PIN, int(led_glow << 1) * led_brightness_level / 100);
+#endif
     if (led_glow_dir || lcd_lib_button_pressed)
     {
+#if FAN2_PIN != LED_PIN
         if (led_mode == LED_MODE_ALWAYS_ON)
             analogWrite(LED_PIN, 255 * led_brightness_level / 100);
+#endif
         led_glow = led_glow_dir = 0;
         LED_NORMAL
 
@@ -252,11 +261,7 @@ static void lcd_menu_special_startup()
 
 void doCooldown()
 {
-    for(uint8_t n=0; n<EXTRUDERS; ++n)
-        cooldownHotend(n);
-#if TEMP_SENSOR_BED != 0
-    setTargetBed(0);
-#endif
+    disable_heater();
     fanSpeed = 0;
 }
 

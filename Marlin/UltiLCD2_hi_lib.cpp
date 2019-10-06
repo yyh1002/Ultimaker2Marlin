@@ -7,6 +7,9 @@
 #include "UltiLCD2_hi_lib.h"
 #include "temperature.h"
 #include "UltiLCD2_menu_utils.h"
+#if EXTRUDERS > 1
+#include "UltiLCD2_menu_dual.h"
+#endif
 
 menuFunc_t postMenuCheck;
 uint8_t minProgress;
@@ -39,30 +42,6 @@ void eeprom_write_float(const float* addr, float f)
     n.f = f;
     eeprom_write_dword((uint32_t*)addr, n.i);
 }
-
-void line_entry_pos_update (uint16_t maxStep)
-{
-	if (lineEntryPos > maxStep) lineEntryPos = 0;
-	//
-	lineEntryWait++;
-	if (lineEntryWait >= LINE_ENTRY_WAIT_END)
-	{
-		lineEntryWait = LINE_ENTRY_WAIT_END;
-		lineEntryPos += LINE_ENTRY_STEP;
-		if (lineEntryPos > maxStep)
-		{
-			lineEntryPos  = maxStep;
-			lineEntryWait = -lineEntryWait;
-		}
-	}
-	else if (lineEntryWait == 0 && lineEntryPos > 0)
-	{
-		lineEntryPos -= LINE_ENTRY_STEP;
-		lineEntryWait--;
-	}
-}
-
-inline void line_entry_pos_reset () { lineEntryPos = lineEntryWait = 0; }
 
 void lcd_tripple_menu(const char* left, const char* right, const char* bottom)
 {
@@ -132,18 +111,13 @@ void lcd_info_screen(menuFunc_t cancelMenu, menuFunc_t callbackOnCancel, const c
 
     lcd_basic_screen();
 
-    if (!cancelButtonText)
-    {
-        cancelButtonText = PSTR("CANCEL");
-    }
+    if (!cancelButtonText) cancelButtonText = PSTR("CANCEL");
     if (IS_SELECTED_MAIN(0))
     {
         lcd_lib_draw_box(3+2, BOTTOM_MENU_YPOS-1, 124-2, BOTTOM_MENU_YPOS+7);
         lcd_lib_set(3+3, BOTTOM_MENU_YPOS, 124-3, BOTTOM_MENU_YPOS+6);
         lcd_lib_clear_stringP(65 - strlen_P(cancelButtonText) * 3, BOTTOM_MENU_YPOS, cancelButtonText);
-    }
-    else
-    {
+    }else{
         lcd_lib_draw_stringP(65 - strlen_P(cancelButtonText) * 3, BOTTOM_MENU_YPOS, cancelButtonText);
     }
 }
@@ -205,6 +179,11 @@ void lcd_progressbar(uint8_t progress)
     }
 }
 
+void lcd_cpyreturn(char * buffer)
+{
+    strcpy_P(buffer, PSTR("< RETURN"));
+}
+
 void lcd_draw_scroll_entry(uint8_t offsetY, char * buffer, uint8_t flags)
 {
 	uint8_t buffer_len = (uint8_t) strlen(buffer);
@@ -212,33 +191,33 @@ void lcd_draw_scroll_entry(uint8_t offsetY, char * buffer, uint8_t flags)
 	uint8_t backup_pos = 0;
 	if (flags & MENU_SELECTED)
 	{
-		if ((ui_mode & UI_SCROLL_ENTRY) && (buffer_len > LINE_ENTRY_TEXT_LENGTH))
+		if ((ui_mode & UI_SCROLL_ENTRY) && (buffer_len > LINE_ENTRY_TEXT_LENGHT))
 		{
-			line_entry_pos_update(LINE_ENTRY_MAX_STEP(buffer_len - LINE_ENTRY_TEXT_LENGTH));
-			buffer    += LINE_ENTRY_TEXT_BEGIN;
-			backup_pos = LINE_ENTRY_TEXT_LENGTH+LINE_ENTRY_TEXT_OFFSET;
+			line_entry_pos_update(LINE_ENTRY_MAX_STEP(buffer_len - LINE_ENTRY_TEXT_LENGHT));
+			buffer    += LINE_ENTRY_TEXT_BEGIN();
+			backup_pos = LINE_ENTRY_TEXT_LENGHT+LINE_ENTRY_TEXT_OFFSET();
 			backup     = buffer[backup_pos];
 			buffer[backup_pos] = '\0';
 		}
 		//
 		lcd_lib_set(LCD_CHAR_MARGIN_LEFT-1, offsetY-1, LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT, offsetY+7);
-		lcd_lib_clear_string(LCD_CHAR_MARGIN_LEFT+LINE_ENTRY_GFX_BEGIN, offsetY, buffer);
+		lcd_lib_clear_string(LCD_CHAR_MARGIN_LEFT+LINE_ENTRY_GFX_BEGIN(), offsetY, buffer);
 		//
 		if (backup != '\0')
 			buffer[backup_pos] = backup;
 	}
 	else
     {
-		if ((ui_mode & UI_SCROLL_ENTRY) && (buffer_len > LINE_ENTRY_TEXT_LENGTH))
+		if ((ui_mode & UI_SCROLL_ENTRY) && (buffer_len > LINE_ENTRY_TEXT_LENGHT))
 		{
-			backup = buffer[LINE_ENTRY_TEXT_LENGTH];
-			buffer[LINE_ENTRY_TEXT_LENGTH] = '\0';
+			backup = buffer[LINE_ENTRY_TEXT_LENGHT];
+			buffer[LINE_ENTRY_TEXT_LENGHT] = '\0';
 		}
 		//
 		lcd_lib_draw_string(LCD_CHAR_MARGIN_LEFT, offsetY, buffer);
 		//
 		if (backup != '\0')
-			buffer[LINE_ENTRY_TEXT_LENGTH] = backup;
+			buffer[LINE_ENTRY_TEXT_LENGHT] = backup;
 	}
 }
 
@@ -258,17 +237,15 @@ void lcd_scroll_menu(const char* menuNameP, int8_t entryCount, scrollDrawCallbac
 
     lcd_lib_clear();
 
-    int16_t targetViewPos = selIndex * 8 - 15;
+    int16_t targetViewPos = (selIndex << 3) - 15;
 
     int16_t viewDiff = targetViewPos - viewPos;
     viewPos += viewDiff / 4;
-//    if (viewDiff > 0) { viewPos ++; led_glow = led_glow_dir = 0; }
-//    if (viewDiff < 0) { viewPos --; led_glow = led_glow_dir = 0; }
     if      (viewDiff > 0) { ++viewPos; line_entry_pos_reset(); }
     else if (viewDiff < 0) { --viewPos; line_entry_pos_reset(); }
 
-    uint8_t drawOffset = 11 - (uint16_t(viewPos) % 8);
-    uint8_t itemOffset = uint16_t(viewPos) / 8;
+    uint8_t drawOffset = 11 - (uint16_t(viewPos) & 0x07);
+    uint8_t itemOffset = uint16_t(viewPos) >> 3;
     for(uint8_t n=0; n<6; n++)
     {
         uint8_t itemIdx = n + itemOffset;
@@ -318,7 +295,7 @@ void lcd_menu_edit_setting()
 
     lcd_basic_screen();
     lcd_lib_draw_string_centerP(20, lcd_setting_name);
-    char buffer[LINE_ENTRY_TEXT_LENGTH] = {0};
+    char buffer[20] = {0};
     if (lcd_setting_type == 3)
         float_to_string2(float(lcd_lib_encoder_pos) / 100.0, buffer, lcd_setting_postfix);
     else
@@ -341,9 +318,16 @@ void lcd_menu_edit_setting()
 static void lcd_menu_material_reheat()
 {
     last_user_interaction = millis();
-    int16_t temp = degHotend(active_extruder);
-    int16_t target = degTargetHotend(active_extruder) - 10;
-    if (temp < 0) temp = 0;
+    int16_t temp = 0;
+    int16_t target = 0;
+    for (uint8_t e=0; e<EXTRUDERS; ++e)
+    {
+        int16_t t = degHotend(e);
+        if (t < 0) t = 0;
+        temp += t;
+        t = degTargetHotend(e) - 5;
+        target += t;
+    }
     if (temp > target)
     {
         menu.return_to_previous(false);
@@ -355,13 +339,19 @@ static void lcd_menu_material_reheat()
     else
         minProgress = progress;
 
-    // lcd_info_screen(lcd_change_to_previous_menu, cancelMaterialInsert);
     lcd_lib_clear();
     lcd_lib_draw_string_centerP(10, PSTR("Heating printhead"));
 
-    char buffer[16] = {0};
-    char *c = int_to_string(int(dsp_temperature[active_extruder]), buffer, PSTR("C/"));
-    int_to_string(int(target_temperature[active_extruder]), c, PSTR("C"));
+    char buffer[32] = {0};
+    char *c = buffer;
+    for(uint8_t e=0; e<EXTRUDERS; ++e)
+    {
+        c = int_to_string(dsp_temperature[e], c, PSTR("C/"));
+        c = int_to_string(degTargetHotend(e), c, PSTR("C "));
+    }
+    --c;
+    *c = '\0';
+
     lcd_lib_draw_string_center(24, buffer);
     // lcd_lib_draw_heater(LCD_GFX_WIDTH/2-2, 40, getHeaterPower(active_extruder));
 
@@ -374,16 +364,16 @@ bool check_heater_timeout()
 {
     if (heater_timeout && !commands_queued() && !HAS_SERIAL_CMD)
     {
-        const unsigned long timeout = last_user_interaction + (heater_timeout*MILLISECONDS_PER_MINUTE);
+        const unsigned long timeout = last_user_interaction + (heater_timeout * (unsigned long)MILLISECONDS_PER_MINUTE);
         if (timeout < millis())
         {
             for(uint8_t e=0; e<EXTRUDERS; ++e)
             {
                 if (target_temperature[e] > (EXTRUDE_MINTEMP - 40))
                 {
-                    // switch off nozzle heater
                     backup_temperature[e] = target_temperature[e];
-                    cooldownHotend(e);
+                    // switch off nozzle heater
+                    setTargetHotend(0, e);
                 }
             }
             return false;
@@ -392,47 +382,21 @@ bool check_heater_timeout()
     return true;
 }
 
-bool check_preheat()
+bool check_preheat(uint8_t e)
 {
-    int16_t target = degTargetHotend(active_extruder);
+    int16_t target = degTargetHotend(e);
     if (!target)
     {
-        for (uint8_t n=0; n<EXTRUDERS; ++n)
-        {
-            setTargetHotend(backup_temperature[n], n);
-        }
+        setTargetHotend(backup_temperature[e], e);
         minProgress = 0;
-        menu.add_menu(menu_t(lcd_menu_material_reheat));
+        if (menu.currentMenu().processMenuFunc != lcd_menu_material_reheat)
+        {
+            menu.add_menu(menu_t(lcd_menu_material_reheat));
+        }
         return false;
     }
     return true;
 }
-
-#if EXTRUDERS > 1
-void lcd_select_nozzle(menuFunc_t callbackOnSelect, menuFunc_t callbackOnAbort)
-{
-    lcd_tripple_menu(PSTR("EXTRUDER|1"), PSTR("EXTRUDER|2"), PSTR("RETURN"));
-
-    if (lcd_lib_button_pressed)
-    {
-        uint8_t index(SELECTED_MAIN_MENU_ITEM());
-        if (index < 2)
-        {
-            active_extruder = index;
-            if (callbackOnSelect) callbackOnSelect();
-        }
-        else
-        {
-            if (callbackOnAbort)
-                callbackOnAbort();
-            else
-                menu.return_to_previous();
-        }
-    }
-
-    lcd_lib_update_screen();
-}
-#endif
 
 
 #endif//ENABLE_ULTILCD2

@@ -18,8 +18,8 @@
   along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TEMPERATURE_H
-#define TEMPERATURE_H
+#ifndef temperature_h
+#define temperature_h
 
 #include "Marlin.h"
 #include "planner.h"
@@ -27,16 +27,26 @@
   #include "stepper.h"
 #endif
 
+#define constrainmax(amt,high) ((amt)>(high)?(high):(amt))
+
 // public functions
 void tp_init();  //initialize the heating
 void manage_heater(); //it is critical that this is called periodically.
 
+#define EXTRUDER_PREHEAT     1
+#define EXTRUDER_STANDBY     4
+#define EXTRUDER_AUTOSTANDBY 16
+extern uint8_t temperature_state;
+
 // low level conversion routines
 // do not use these routines and variables outside of temperature.cpp
 extern uint16_t target_temperature[EXTRUDERS];
+extern int8_t target_temperature_diff[EXTRUDERS];
 extern float current_temperature[EXTRUDERS];
+extern unsigned long extruder_lastused[EXTRUDERS];
 #if TEMP_SENSOR_BED != 0
 extern uint16_t target_temperature_bed;
+extern int8_t target_temperature_bed_diff;
 extern float current_temperature_bed;
 #endif
 #ifdef TEMP_SENSOR_1_AS_REDUNDANT
@@ -75,43 +85,42 @@ FORCE_INLINE float degBed() {
   return current_temperature_bed;
 }
 
-FORCE_INLINE float degTargetBed() {
-  return target_temperature_bed;
+FORCE_INLINE int degTargetBed() {
+  return target_temperature_bed + target_temperature_bed_diff;
 }
 
 FORCE_INLINE bool isHeatingBed() {
-  return target_temperature_bed > current_temperature_bed;
+  return target_temperature_bed + target_temperature_bed_diff > current_temperature_bed;
 }
 
 FORCE_INLINE bool isCoolingBed() {
-  return target_temperature_bed < current_temperature_bed;
+  return target_temperature_bed + target_temperature_bed_diff < current_temperature_bed;
 }
-
-#if defined(BED_MAXTEMP)
-void setTargetBed(const uint16_t &celsius);
-#else
-FORCE_INLINE void setTargetBed(const float &celsius)
-{
-  target_temperature_bed = celsius;
-}
-#endif // BED_MAXTEMP
-
 #endif // TEMP_SENSOR_BED
 
-FORCE_INLINE float degTargetHotend(uint8_t extruder) {
-  return target_temperature[extruder];
+FORCE_INLINE int degTargetHotend(uint8_t extruder) {
+  return target_temperature[extruder]+target_temperature_diff[extruder];
 }
 
-void setTargetHotend(const uint16_t &celsius, uint8_t extruder);
+FORCE_INLINE void setTargetHotend(const uint16_t &celsius, uint8_t extruder) {
+  target_temperature[extruder] = constrainmax(celsius, HEATER_0_MAXTEMP - 15);
+}
 
-void cooldownHotend(uint8_t extruder);
+FORCE_INLINE void setTargetBed(const uint16_t &celsius)
+{
+#ifdef BED_MAXTEMP
+  target_temperature_bed = constrainmax(celsius, BED_MAXTEMP - 15);
+#else
+  target_temperature_bed = celsius;
+#endif
+}
 
 FORCE_INLINE bool isHeatingHotend(uint8_t extruder){
-  return target_temperature[extruder] > current_temperature[extruder];
+  return degTargetHotend(extruder) > current_temperature[extruder];
 }
 
 FORCE_INLINE bool isCoolingHotend(uint8_t extruder) {
-  return target_temperature[extruder] < current_temperature[extruder];
+  return degTargetHotend(extruder) < current_temperature[extruder];
 }
 
 #define degHotend0() degHotend(0)
@@ -150,7 +159,7 @@ FORCE_INLINE bool isCoolingHotend(uint8_t extruder) {
 typedef bool (*autotuneFunc_t) (uint8_t state, uint8_t cycle, float kp, float ki, float kd);
 
 int getHeaterPower(int heater);
-void disable_all_heaters();
+void disable_heater();
 void setWatch();
 void updatePID();
 
@@ -169,7 +178,6 @@ void PID_autotune(float temp, int extruder, int ncycles, autotuneFunc_t pCallbac
 
 void set_maxtemp(uint8_t e, int maxTemp);
 int get_maxtemp(uint8_t e);
-
 
 #endif
 

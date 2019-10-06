@@ -6,7 +6,9 @@
 #include "cardreader.h"//This code uses the card.longFilename as buffer to store data, to save memory.
 #include "temperature.h"
 #include "ConfigurationStore.h"
+#include "ConfigurationDual.h"
 #include "machinesettings.h"
+#include "commandbuffer.h"
 #include "UltiLCD2.h"
 #include "UltiLCD2_hi_lib.h"
 #include "UltiLCD2_menu_material.h"
@@ -58,7 +60,7 @@ void lcd_menu_first_run_init()
 
 static void homeAndParkHeadForCenterAdjustment2()
 {
-    add_homing[Z_AXIS] = 0;
+    add_homeing[Z_AXIS] = 0;
     enquecommand_P(PSTR("G28 Z0 X0 Y0"));
     char buffer[32] = {0};
     sprintf_P(buffer, PSTR("G1 F%i Z%i X%i Y%i"), int(homing_feedrate[0]), 35, int(AXIS_CENTER_POS(X_AXIS)), int(max_pos[Y_AXIS])-10);
@@ -78,7 +80,7 @@ void lcd_menu_first_run_start_bed_leveling()
 
 static void homeAndRaiseBed()
 {
-    homeBed();
+    CommandBuffer::homeBed();
     char buffer[32] = {0};
     sprintf_P(buffer, PSTR("G1 F%i Z%i"), int(homing_feedrate[0]), 35);
     enquecommand(buffer);
@@ -98,7 +100,8 @@ static void lcd_menu_first_run_init_2()
 
 static void homeAndParkHeadForCenterAdjustment()
 {
-    homeHead();
+    cmd_synchronize();
+    CommandBuffer::homeHead();
     char buffer[32] = {0};
     sprintf_P(buffer, PSTR("G1 F%i Z%i X%i Y%i"), int(homing_feedrate[0]), 35, int(AXIS_CENTER_POS(X_AXIS)), int(max_pos[Y_AXIS])-10);
     enquecommand(buffer);
@@ -118,15 +121,27 @@ static void lcd_menu_first_run_init_3()
 
 static void parkHeadForLeftAdjustment()
 {
-    add_homing[Z_AXIS] -= current_position[Z_AXIS];
+    add_homeing[Z_AXIS] -= current_position[Z_AXIS];
     current_position[Z_AXIS] = 0;
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], active_extruder, true);
 
     char buffer[32] = {0};
     sprintf_P(buffer, PSTR("G1 F%i Z5"), int(homing_feedrate[Z_AXIS]));
     enquecommand(buffer);
+#if (EXTRUDERS > 1)
+    if IS_DUAL_ENABLED
+    {
+        sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[X_AXIS]), max(int(min_pos[X_AXIS]), 0)+15, max(int(min_pos[Y_AXIS]), 0)+20);
+    }
+    else
+    {
+        sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[X_AXIS]), max(int(min_pos[X_AXIS]), 0)+10, max(int(min_pos[Y_AXIS]), 0)+15);
+    }
+    enquecommand(buffer);
+#else
     sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[X_AXIS]), max(int(min_pos[X_AXIS]), 0)+10, max(int(min_pos[Y_AXIS]), 0)+15);
     enquecommand(buffer);
+#endif
     sprintf_P(buffer, PSTR("G1 F%i Z0"), int(homing_feedrate[Z_AXIS]));
     enquecommand(buffer);
 }
@@ -162,8 +177,22 @@ static void parkHeadForRightAdjustment()
     char buffer[32] = {0};
     sprintf_P(buffer, PSTR("G1 F%i Z5"), int(homing_feedrate[Z_AXIS]));
     enquecommand(buffer);
+#if (EXTRUDERS > 1)
+    if IS_DUAL_ENABLED
+    {
+        sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[X_AXIS]), int(max_pos[X_AXIS])-15, max(int(min_pos[Y_AXIS]), 0)+20);
+    }
+    else
+    {
+        sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[X_AXIS]), int(max_pos[X_AXIS])-10, max(int(min_pos[Y_AXIS]), 0)+15);
+    }
+    enquecommand(buffer);
+#else
     sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[X_AXIS]), int(max_pos[X_AXIS])-10, max(int(min_pos[Y_AXIS]), 0)+15);
     enquecommand(buffer);
+#endif
+
+
     sprintf_P(buffer, PSTR("G1 F%i Z0"), int(homing_feedrate[Z_AXIS]));
     enquecommand(buffer);
 }
@@ -260,18 +289,18 @@ static void lcd_menu_first_run_bed_level_paper_left()
 
 static void storeBedLeveling()
 {
-    add_homing[Z_AXIS] += LEVELING_OFFSET;  //Adjust the Z homing position to account for the thickness of the paper.
+    add_homeing[Z_AXIS] += LEVELING_OFFSET;  //Adjust the Z homing position to account for the thickness of the paper.
     // now that we are finished, save the settings to EEPROM
     Config_StoreSettings();
     if (IS_FIRST_RUN_DONE())
     {
         // home all
-        homeAll();
+        CommandBuffer::homeAll();
     }
     else
     {
         // home z-axis
-        homeBed();
+        CommandBuffer::homeBed();
     }
 }
 
@@ -310,12 +339,10 @@ static void lcd_menu_first_run_bed_level_paper_right()
 
 static void parkHeadForHeating()
 {
+    cmd_synchronize();
     lcd_material_reset_defaults();
-    char buffer[32] = {0};
-    sprintf_P(buffer, PSTR("G1 F%i X%i Y%i"), int(homing_feedrate[0]), int(AXIS_CENTER_POS(X_AXIS)), max(int(min_pos[Y_AXIS]), 0)+5);
-    enquecommand(buffer);
-
-    enquecommand_P(PSTR("M84"));//Disable motor power.
+    CommandBuffer::move2front();
+    finishAndDisableSteppers();//Disable motor power.
 }
 
 static void lcd_menu_first_run_material_load()
@@ -356,7 +383,7 @@ static void lcd_menu_first_run_material_select_1()
 
 static void lcd_material_select_callback(uint8_t nr, uint8_t offsetY, uint8_t flags)
 {
-    char buffer[10];
+    char buffer[MATERIAL_NAME_SIZE+1] = {0};
     eeprom_read_block(buffer, EEPROM_MATERIAL_NAME_OFFSET(nr), MATERIAL_NAME_SIZE);
 
     buffer[MATERIAL_NAME_SIZE] = '\0';
@@ -420,10 +447,10 @@ static void lcd_menu_first_run_material_load_heatup()
     if (temp < 0) temp = 0;
     if (temp > target)
     {
-        for(uint8_t e=0; e<EXTRUDERS; ++e)
+        for(uint8_t e=0; e<EXTRUDERS; e++)
             volume_to_filament_length[e] = 1.0;//Set the extrusion to 1mm per given value, so we can move the filament a set distance.
 
-        menu.replace_menu(menu_t(lcd_menu_first_run_material_load_insert, MAIN_MENU_ITEM_POS(0)));
+        menu.replace_menu(menu_t(lcd_menu_first_run_material_load_insert));
         temp = target;
     }
 
@@ -447,10 +474,10 @@ static void lcd_menu_first_run_material_load_heatup()
 static void runMaterialForward()
 {
     //Override the max feedrate and acceleration values to get a better insert speed and speedup/slowdown
-    float old_max_feedrate_e = max_feedrate[E_AXIS];
+    //float old_max_feedrate_e = max_feedrate[E_AXIS];
     float old_retract_acceleration = retract_acceleration;
     float old_max_e_jerk = max_e_jerk;
-    max_feedrate[E_AXIS] = float(FILAMENT_FAST_STEPS) / e_steps_per_unit(active_extruder);
+    //max_feedrate[E_AXIS] = float(FILAMENT_FAST_STEPS) / e_steps_per_unit(active_extruder);
     retract_acceleration = float(FILAMENT_LONG_ACCELERATION_STEPS) / e_steps_per_unit(active_extruder);
     max_e_jerk = FILAMENT_LONG_MOVE_JERK;
 
@@ -461,7 +488,7 @@ static void runMaterialForward()
     plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], max_feedrate[E_AXIS], 0);
 
     //Put back original values.
-    max_feedrate[E_AXIS] = old_max_feedrate_e;
+    //max_feedrate[E_AXIS] = old_max_feedrate_e;
     retract_acceleration = old_retract_acceleration;
     max_e_jerk = old_max_e_jerk;
 }
@@ -476,6 +503,7 @@ static void lcd_menu_first_run_material_load_insert()
         plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], FILAMENT_INSERT_SPEED, 0);
     }
 
+    SELECT_MAIN_MENU_ITEM(0);
     lcd_info_screen(lcd_menu_first_run_material_load_forward, runMaterialForward, PSTR("CONTINUE"));
     DRAW_PROGRESS_NR(17);
     lcd_lib_draw_string_centerP(10, PSTR("Insert new material"));
@@ -496,7 +524,8 @@ static void lcd_menu_first_run_material_load_forward()
         lcd_lib_keyclick();
         // led_glow_dir = led_glow = 0;
         digipot_current(2, motor_current_setting[2]*2/3);//Set E motor power lower so the motor will skip instead of grind.
-        menu.replace_menu(menu_t(lcd_menu_first_run_material_load_wait, MAIN_MENU_ITEM_POS(0)));
+        menu.replace_menu(menu_t(lcd_menu_first_run_material_load_wait));
+        SELECT_MAIN_MENU_ITEM(0);
     }
 
     long pos = st_get_position(E_AXIS);

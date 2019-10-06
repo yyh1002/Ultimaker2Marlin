@@ -82,6 +82,7 @@ const char echomagic[] PROGMEM ="echo:";
 void serial_echopair_P(const char *s_P, float v);
 void serial_echopair_P(const char *s_P, double v);
 void serial_echopair_P(const char *s_P, unsigned long v);
+void serial_echopair_P(const char *s_P, unsigned int v);
 
 void serial_action_P(const char *s_P);
 
@@ -101,33 +102,38 @@ void process_command_P(const char *strCmd);
 
 void idle(); // the standard idle routine calls manage_inactivity()
 
+extern uint8_t position_state;
+#define KNOWNPOS_X 1
+#define KNOWNPOS_Y 2
+#define KNOWNPOS_Z 4
+
 #if defined(X_ENABLE_PIN) && X_ENABLE_PIN > -1
   #define  enable_x() WRITE(X_ENABLE_PIN, X_ENABLE_ON)
-  #define disable_x() WRITE(X_ENABLE_PIN,!X_ENABLE_ON)
+  #define disable_x() { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); position_state &= ~KNOWNPOS_X; }
 #else
   #define enable_x() ;
-  #define disable_x() ;
+  #define disable_x()  { position_state &= ~KNOWNPOS_X }
 #endif
 
 #if defined(Y_ENABLE_PIN) && Y_ENABLE_PIN > -1
   #define  enable_y() WRITE(Y_ENABLE_PIN, Y_ENABLE_ON)
-  #define disable_y() WRITE(Y_ENABLE_PIN,!Y_ENABLE_ON)
+  #define disable_y() { WRITE(Y_ENABLE_PIN,!Y_ENABLE_ON); position_state &= ~KNOWNPOS_Y; }
 #else
   #define enable_y() ;
-  #define disable_y() ;
+  #define disable_y() { position_state &= ~KNOWNPOS_Y }
 #endif
 
 #if defined(Z_ENABLE_PIN) && Z_ENABLE_PIN > -1
   #ifdef Z_DUAL_STEPPER_DRIVERS
     #define  enable_z() { WRITE(Z_ENABLE_PIN, Z_ENABLE_ON); WRITE(Z2_ENABLE_PIN, Z_ENABLE_ON); }
-    #define disable_z() { WRITE(Z_ENABLE_PIN,!Z_ENABLE_ON); WRITE(Z2_ENABLE_PIN,!Z_ENABLE_ON); }
+    #define disable_z() { WRITE(Z_ENABLE_PIN,!Z_ENABLE_ON); WRITE(Z2_ENABLE_PIN,!Z_ENABLE_ON); position_state &= ~KNOWNPOS_Z; }
   #else
     #define  enable_z() WRITE(Z_ENABLE_PIN, Z_ENABLE_ON)
-    #define disable_z() WRITE(Z_ENABLE_PIN,!Z_ENABLE_ON)
+    #define disable_z() { WRITE(Z_ENABLE_PIN,!Z_ENABLE_ON); position_state &= ~KNOWNPOS_Z; }
   #endif
 #else
   #define enable_z() ;
-  #define disable_z() ;
+  #define disable_z() { position_state &= ~KNOWNPOS_Z }
 #endif
 
 #if defined(E0_ENABLE_PIN) && (E0_ENABLE_PIN > -1)
@@ -161,6 +167,7 @@ extern float extruder_offset[2][EXTRUDERS];
 
 enum AxisEnum {X_AXIS=0, Y_AXIS=1, Z_AXIS=2, E_AXIS=3};
 
+float roundOffset(uint8_t axis, const float &offset);
 
 #ifdef DELTA
 void calculate_delta(float cartesian[3]);
@@ -186,6 +193,7 @@ void enquecommand_P(const char *cmd); //put an ascii command at the end of the c
 uint8_t commands_queued();
 void cmd_synchronize();
 void clamp_to_software_endstops(float target[3]);
+void set_current_position(uint8_t axis, const float &pos);
 
 #ifdef FAST_PWM_FAN
 void setPwmFrequency(uint8_t pin, int val);
@@ -201,7 +209,7 @@ extern uint8_t axis_relative_state;
 extern int feedmultiply;
 extern int extrudemultiply[EXTRUDERS]; // Sets extrude multiply factor (in percent)
 extern float current_position[NUM_AXIS] ;
-extern float add_homing[3];
+extern float add_homeing[3];
 extern float min_pos[3];
 extern float max_pos[3];
 extern uint8_t fanSpeed;
@@ -212,19 +220,33 @@ extern int EtoPPressure;
 #endif
 extern bool position_error;
 
-#ifdef FAN_SOFT_PWM
+#if defined(FAN_SOFT_PWM) || defined(FAN2_SOFT_PWM)
 extern unsigned char fanSpeedSoftPwm;
 #endif
 
 #ifdef FWRETRACT
-extern bool autoretract_enabled;
-extern bool retracted;
+#define EXTRUDER_RETRACT     1
+#define TOOLCHANGE_RETRACT   4
+#define AUTO_RETRACT       128
+extern uint8_t retract_state;
 extern float retract_length, retract_feedrate, retract_zlift;
+#define AUTORETRACT_ENABLED (retract_state & AUTO_RETRACT)
+#define EXTRUDER_RETRACTED(e) (retract_state & (EXTRUDER_RETRACT << e))
+#define SET_EXTRUDER_RETRACT(e) (retract_state |= (EXTRUDER_RETRACT << e))
+#define CLEAR_EXTRUDER_RETRACT(e) (retract_state &= ~(EXTRUDER_RETRACT << e))
+#define TOOLCHANGE_RETRACTED(e) (retract_state & (TOOLCHANGE_RETRACT << e))
+#define SET_TOOLCHANGE_RETRACT(e) (retract_state |= (TOOLCHANGE_RETRACT << e))
+#define CLEAR_TOOLCHANGE_RETRACT(e) (retract_state &= ~(TOOLCHANGE_RETRACT << e))
 #if EXTRUDERS > 1
-extern float extruder_swap_retract_length;
+bool changeExtruder(uint8_t nextExtruder, bool moveZ);
 #endif
-extern float retract_recover_length, retract_recover_feedrate;
-#endif
+extern float retract_recover_length[EXTRUDERS];
+extern float retract_recover_feedrate[EXTRUDERS];
+
+void reheatNozzle(uint8_t e);
+
+void reset_retractstate();
+#endif //FWRETRACT
 
 extern unsigned long starttime;
 extern unsigned long stoptime;
@@ -245,11 +267,15 @@ extern uint8_t printing_state;
 #define PRINT_STATE_HOMING      5
 #define PRINT_STATE_RECOVER     6
 #define PRINT_STATE_START       7
+#define PRINT_STATE_TOOLCHANGE  240
+#define PRINT_STATE_TOOLREADY   241
+#define PRINT_STATE_PRIMING     242
+#define PRINT_STATE_END         254
 #define PRINT_STATE_ABORT       255
 
 // Handling multiple extruders pins
 extern uint8_t active_extruder;
-extern uint8_t tmp_extruder;
+extern uint8_t menu_extruder;
 
 #if EXTRUDERS > 2
   # error Unsupported number of extruders

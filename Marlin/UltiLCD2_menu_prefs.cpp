@@ -11,18 +11,10 @@
 #include "UltiLCD2_menu_utils.h"
 #include "UltiLCD2_menu_prefs.h"
 
-// #define WORD_SETTING(n) (cache._uint16[n])
-
 // we use the lcd_cache memory to keep previous values in mind
-#define TUNE_STATUS          (cache._byte[0])
-#define TUNE_EXTRUDER        (cache._byte[1])
-#define TUNE_CYCLES          (cache._byte[2])
-#define TUNE_CURRENTCYCLE    (cache._byte[3])
-#define TUNE_TEMP            (cache._uint16[2])
-#define TUNE_MINTEMP         (cache._uint16[3])
-#define TUNE_MAXTEMP         (cache._uint16[4])
-#define PID_I                (cache._float[1])
-#define PID_D                (cache._float[2])
+// #define FLOAT_SETTING(n) (*(float*)&lcd_cache[(n) * sizeof(float)])
+// #define INT_SETTING(n) (*(int*)&lcd_cache[(n) * sizeof(int)])
+#define WORD_SETTING(n) (*(uint16_t*)&lcd_cache[(n) * sizeof(uint16_t)])
 
 uint8_t ui_mode = UI_MODE_EXPERT;
 uint16_t lcd_timeout = LED_DIM_TIME;
@@ -531,7 +523,7 @@ void lcd_menu_axeslimit()
 
 static void lcd_cancel_steps()
 {
-    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], active_extruder, true);
+    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], menu_extruder, true);
     menu.return_to_previous();
 }
 
@@ -1212,13 +1204,6 @@ static void lcd_preset_retract_length()
     lcd_tune_value(retract_length, 0, 50, 0.01);
 }
 
-#if EXTRUDERS > 1
-static void lcd_preset_swap_length()
-{
-    lcd_tune_value(extruder_swap_retract_length, 0, 50, 0.01);
-}
-#endif // EXTRUDERS
-
 static void lcd_preset_endofprint_length()
 {
     lcd_tune_value(end_of_print_retraction, 0, 50, 0.01);
@@ -1255,13 +1240,6 @@ static const menu_t & get_retract_menuoption(uint8_t nr, menu_t &opt)
         // retraction length
         opt.setData(MENU_INPLACE_EDIT, lcd_preset_retract_length, 2);
     }
-#if EXTRUDERS > 1
-    else if (nr == index++)
-    {
-        // extruder swap length
-        opt.setData(MENU_INPLACE_EDIT, lcd_preset_swap_length, 2);
-    }
-#endif
     else if (nr == index++)
     {
         // retraction speed
@@ -1335,26 +1313,6 @@ static void drawRetractSubmenu(uint8_t nr, uint8_t &flags)
                               , ALIGN_RIGHT | ALIGN_VCENTER
                               , flags);
     }
-#if EXTRUDERS > 1
-    else if (nr == index++)
-    {
-        // extruder swap length
-        if (flags & (MENU_SELECTED | MENU_ACTIVE))
-        {
-            lcd_lib_draw_string_leftP(5, PSTR("Extruder change"));
-            flags |= MENU_STATUSLINE;
-        }
-        lcd_lib_draw_string_leftP(26, PSTR("E"));
-        float_to_string2(extruder_swap_retract_length, buffer, PSTR("mm"));
-        LCDMenu::drawMenuString(2*LCD_CHAR_MARGIN_LEFT+LCD_CHAR_SPACING
-                              , 26
-                              , 7*LCD_CHAR_SPACING
-                              , LCD_CHAR_HEIGHT
-                              , buffer
-                              , ALIGN_RIGHT | ALIGN_VCENTER
-                              , flags);
-    }
-#endif
     else if (nr == index++)
     {
         // retract speed
@@ -1398,11 +1356,7 @@ void lcd_menu_retraction()
     lcd_basic_screen();
     lcd_lib_draw_hline(3, 124, 13);
 
-#if EXTRUDERS > 1
-    menu.process_submenu(get_retract_menuoption, 6);
-#else
     menu.process_submenu(get_retract_menuoption, 5);
-#endif
 
     uint8_t flags = 0;
 #if EXTRUDERS > 1
@@ -1458,7 +1412,7 @@ static void lcd_preset_current_z()
     }
 }
 
-static void lcd_preset_current_e()
+static void lcd_preset_current_e0()
 {
     if (lcd_tune_value(motor_current_setting[2], 0, 1500))
     {
@@ -1470,7 +1424,7 @@ static void lcd_preset_current_e()
 }
 
 #if (EXTRUDERS > 1) && defined(MOTOR_CURRENT_PWM_E_PIN) && (MOTOR_CURRENT_PWM_E_PIN > -1)
-static void lcd_preset_current_e2()
+static void lcd_preset_current_e1()
 {
     if (lcd_tune_value(motor_current_e2, 0, 1500))
     {
@@ -1509,13 +1463,13 @@ static const menu_t & get_current_menuoption(uint8_t nr, menu_t &opt)
     else if (nr == index++)
     {
         // motor current extruder 1
-        opt.setData(MENU_INPLACE_EDIT, lcd_preset_current_e, 2);
+        opt.setData(MENU_INPLACE_EDIT, lcd_preset_current_e0, 2);
     }
 #if (EXTRUDERS > 1) && defined(MOTOR_CURRENT_PWM_E_PIN) && (MOTOR_CURRENT_PWM_E_PIN > -1)
     else if (nr == index++)
     {
         // motor current extruder 2
-        opt.setData(MENU_INPLACE_EDIT, lcd_preset_current_e2, 2);
+        opt.setData(MENU_INPLACE_EDIT, lcd_preset_current_e1, 2);
     }
 #endif
     return opt;
@@ -2027,139 +1981,11 @@ void lcd_menu_acceleration()
 }
 
 #if EXTRUDERS > 1
-
-void init_swap_menu()
-{
-    menu.set_selection(2);
-}
-
-static void lcd_store_swap()
-{
-    SET_CONTROL_FLAGS(control_flags);
-    menu.return_to_previous();
-}
-
-static void lcd_swap_extruders()
-{
-    control_flags ^= FLAG_SWAP_EXTRUDERS;
-}
-
-// create menu options for "acceleration and jerk"
-static const menu_t & get_swap_menuoption(uint8_t nr, menu_t &opt)
-{
-    uint8_t index(0);
-    if (nr == index++)
-    {
-        // STORE
-        opt.setData(MENU_NORMAL, lcd_store_swap);
-    }
-    else if (nr == index++)
-    {
-        // RETURN
-        opt.setData(MENU_NORMAL, lcd_change_to_previous_menu);
-    }
-    else if (nr == index++)
-    {
-        // swap extruders
-        opt.setData(MENU_NORMAL, lcd_swap_extruders);
-    }
-    return opt;
-}
-
-static void drawSwapSubmenu(uint8_t nr, uint8_t &flags)
-{
-    uint8_t index(0);
-    if (nr == index++)
-    {
-        // Store
-        if (flags & MENU_SELECTED)
-        {
-            lcd_lib_draw_string_leftP(5, PSTR("Store settings"));
-            flags |= MENU_STATUSLINE;
-        }
-        LCDMenu::drawMenuString_P(LCD_CHAR_MARGIN_LEFT
-                                , BOTTOM_MENU_YPOS
-                                , 52
-                                , LCD_CHAR_HEIGHT
-                                , PSTR("STORE")
-                                , ALIGN_CENTER
-                                , flags);
-    }
-    else if (nr == index++)
-    {
-        // RETURN
-        LCDMenu::drawMenuBox(LCD_GFX_WIDTH/2 + 2*LCD_CHAR_MARGIN_LEFT
-                           , BOTTOM_MENU_YPOS
-                           , 52
-                           , LCD_CHAR_HEIGHT
-                           , flags);
-        if (flags & MENU_SELECTED)
-        {
-            lcd_lib_draw_string_leftP(5, PSTR("Click to return"));
-            flags |= MENU_STATUSLINE;
-            lcd_lib_clear_stringP(LCD_GFX_WIDTH/2 + LCD_CHAR_MARGIN_LEFT + 4*LCD_CHAR_SPACING, BOTTOM_MENU_YPOS, PSTR("BACK"));
-            lcd_lib_clear_gfx(LCD_GFX_WIDTH/2 + LCD_CHAR_MARGIN_LEFT + 2*LCD_CHAR_SPACING, BOTTOM_MENU_YPOS, backGfx);
-        }
-        else
-        {
-            lcd_lib_draw_stringP(LCD_GFX_WIDTH/2 + LCD_CHAR_MARGIN_LEFT + 4*LCD_CHAR_SPACING, BOTTOM_MENU_YPOS, PSTR("BACK"));
-            lcd_lib_draw_gfx(LCD_GFX_WIDTH/2 + LCD_CHAR_MARGIN_LEFT + 2*LCD_CHAR_SPACING, BOTTOM_MENU_YPOS, backGfx);
-        }
-    }
-    else if (nr == index++)
-    {
-        // Swap Extruders
-        if (flags & (MENU_SELECTED | MENU_ACTIVE))
-        {
-            lcd_lib_draw_string_leftP(5, PSTR("Swap Extruders"));
-            flags |= MENU_STATUSLINE;
-        }
-
-        lcd_lib_draw_string_centerP(16, PSTR("Extruder sequence"));
-        lcd_lib_draw_string_centerP(26, PSTR("during printing"));
-
-        uint8_t xpos = (swapExtruders() ? LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-7*LCD_CHAR_SPACING : LCD_CHAR_MARGIN_LEFT);
-        lcd_lib_draw_stringP(xpos, 38, PSTR("PRIMARY"));
-
-        xpos = (swapExtruders() ? LCD_CHAR_MARGIN_LEFT : LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-6*LCD_CHAR_SPACING);
-        lcd_lib_draw_stringP(xpos, 38, PSTR("SECOND"));
-
-        LCDMenu::drawMenuString_P(LCD_GFX_WIDTH/2-2*LCD_CHAR_MARGIN_LEFT-LCD_CHAR_SPACING
-                              , 38
-                              , 4*LCD_CHAR_SPACING
-                              , LCD_CHAR_HEIGHT
-                              , PSTR("<->")
-                              , ALIGN_CENTER
-                              , flags);
-    }
-}
-
-void lcd_menu_swap_extruder()
-{
-    lcd_basic_screen();
-    lcd_lib_draw_hline(3, 124, 13);
-
-    menu.process_submenu(get_swap_menuoption, 3);
-
-    uint8_t flags = 0;
-    for (uint8_t index=0; index<3; ++index) {
-        menu.drawSubMenu(drawSwapSubmenu, index, flags);
-    }
-
-    if (!(flags & MENU_STATUSLINE))
-    {
-        lcd_lib_draw_string_leftP(5, PSTR("Swap Extruders"));
-    }
-
-    lcd_lib_update_screen();
-}
-
 static void lcd_store_pid2()
 {
     eeprom_write_block(pid2, (uint8_t *)(EEPROM_PID_2), sizeof(pid2));
     menu.return_to_previous();
 }
-
 #endif
 
 static void lcd_store_heatercheck()
@@ -2315,17 +2141,17 @@ void lcd_menu_heatercheck()
 
 static void lcd_preset_autotune_temp()
 {
-    lcd_tune_value(TUNE_TEMP, TUNE_MINTEMP, TUNE_MAXTEMP);
+    lcd_tune_value(WORD_SETTING(2), WORD_SETTING(3), WORD_SETTING(4));
 }
 
 static void lcd_preset_autotune_cycles()
 {
-    lcd_tune_value(TUNE_CYCLES, 2, 20);
+    lcd_tune_value(lcd_cache[2], 2, 20);
 }
 
 static void lcd_cancel_autotune()
 {
-    TUNE_STATUS |= AUTOTUNE_ABORT;
+    lcd_cache[0] |= AUTOTUNE_ABORT;
 }
 
 static const menu_t & get_pidinfo_menuoption(uint8_t nr, menu_t &opt)
@@ -2364,7 +2190,7 @@ static void autotune_finished()
 
 static void lcd_menu_autotune_info()
 {
-    if (TUNE_STATUS == 0)
+    if (lcd_cache[0] == 0)
     {
         lcd_basic_screen();
         lcd_lib_draw_hline(3, 124, 13);
@@ -2381,7 +2207,7 @@ static void lcd_menu_autotune_info()
                 lcd_lib_draw_stringP(LCD_CHAR_MARGIN_LEFT + (10+i)*LCD_CHAR_SPACING, 5, PSTR("."));
             }
         }
-        int_to_string(TUNE_CYCLES, int_to_string(TUNE_CURRENTCYCLE, buffer, PSTR("/")), NULL);
+        int_to_string(lcd_cache[2], int_to_string(lcd_cache[3], buffer, PSTR("/")), NULL);
         lcd_lib_draw_string_right(5, buffer);
 
         menu.process_submenu(get_pidinfo_menuoption, 1);
@@ -2389,32 +2215,32 @@ static void lcd_menu_autotune_info()
         menu.drawSubMenu(drawPIDInfoSubmenu, 0, flags);
 
         // draw current temperature
-        if ((TUNE_EXTRUDER > 0) && (TUNE_EXTRUDER <= EXTRUDERS))
+        if ((lcd_cache[1] > 0) && (lcd_cache[1] <= EXTRUDERS))
         {
-            lcd_lib_draw_heater(LCD_CHAR_MARGIN_LEFT, 29, getHeaterPower(TUNE_EXTRUDER-1));
+            lcd_lib_draw_heater(LCD_CHAR_MARGIN_LEFT, 29, getHeaterPower(lcd_cache[1]-1));
 
-            int_to_string(TUNE_TEMP, int_to_string(dsp_temperature[TUNE_EXTRUDER-1], buffer, PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
+            int_to_string(WORD_SETTING(2), int_to_string(dsp_temperature[lcd_cache[1]-1], buffer, PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
             lcd_lib_draw_string(LCD_CHAR_MARGIN_LEFT + 2*LCD_CHAR_SPACING, 29, buffer);
 
             lcd_lib_draw_string_leftP(17, PSTR("Extruder"));
 #if (EXTRUDERS > 1)
-            int_to_string(TUNE_EXTRUDER, buffer, NULL);
+            int_to_string(lcd_cache[1], buffer, NULL);
             lcd_lib_draw_string(LCD_CHAR_MARGIN_LEFT + 9*LCD_CHAR_SPACING, 17, buffer);
 #endif
         }
 #if (TEMP_SENSOR_BED != 0)
-        else if (TUNE_EXTRUDER == 0)
+        else if (lcd_cache[1] == 0)
         {
             lcd_lib_draw_string_leftP(17, PSTR("Buildplate"));
 
             lcd_lib_draw_gfx(LCD_CHAR_MARGIN_LEFT, 29, bedTempGfx);
-            int_to_string(TUNE_TEMP, int_to_string(dsp_temperature_bed, buffer, PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
+            int_to_string(WORD_SETTING(2), int_to_string(dsp_temperature_bed, buffer, PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
             lcd_lib_draw_string(LCD_CHAR_MARGIN_LEFT + 2*LCD_CHAR_SPACING, 29, buffer);
         }
 #endif
-        lcd_progressbar((124*TUNE_CURRENTCYCLE)/TUNE_CYCLES);
+        lcd_progressbar((124*lcd_cache[3])/lcd_cache[2]);
     }
-    else if (TUNE_STATUS & AUTOTUNE_ABORT)
+    else if (lcd_cache[0] & AUTOTUNE_ABORT)
     {
         menu.return_to_previous();
     }
@@ -2422,20 +2248,20 @@ static void lcd_menu_autotune_info()
     {
         // PID tuning finished
         lcd_info_screen(NULL, autotune_finished, PSTR("CONTINUE"));
-        if (TUNE_STATUS & AUTOTUNE_OK)
+        if (lcd_cache[0] & AUTOTUNE_OK)
         {
             lcd_lib_draw_string_centerP(10, PSTR("PID Autotune"));
             lcd_lib_draw_string_centerP(20, PSTR("finished!"));
             lcd_lib_draw_string_centerP(30, PSTR("You can store"));
             lcd_lib_draw_string_centerP(40, PSTR("the settings."));
         }
-        else if (TUNE_STATUS & AUTOTUNE_TEMP_HIGH)
+        else if (lcd_cache[0] & AUTOTUNE_TEMP_HIGH)
         {
             lcd_lib_draw_string_centerP(10, PSTR("PID Autotune"));
             lcd_lib_draw_string_centerP(20, PSTR("failed!"));
             lcd_lib_draw_string_centerP(30, PSTR("Temperature too high"));
         }
-        else if (TUNE_STATUS & AUTOTUNE_TIMEOUT)
+        else if (lcd_cache[0] & AUTOTUNE_TIMEOUT)
         {
             lcd_lib_draw_string_centerP(10, PSTR("PID Autotune"));
             lcd_lib_draw_string_centerP(20, PSTR("failed!"));
@@ -2449,9 +2275,9 @@ static void lcd_menu_autotune_info()
 
 static void lcd_start_autotune()
 {
-    TUNE_STATUS = 0; // status flag
+    lcd_cache[0] = 0; // status flag
     menu.replace_menu(menu_t(lcd_menu_autotune_info));
-    PID_autotune(float(TUNE_TEMP), TUNE_EXTRUDER-1, TUNE_CYCLES, autotune_callback);
+    PID_autotune(float(WORD_SETTING(2)), lcd_cache[1]-1, lcd_cache[2], autotune_callback);
 }
 
 static const menu_t & get_autotune_menuoption(uint8_t nr, menu_t &opt)
@@ -2532,7 +2358,7 @@ static void drawAutotuneSubmenu(uint8_t nr, uint8_t &flags)
             flags |= MENU_STATUSLINE;
         }
         lcd_lib_draw_stringP(LCD_CHAR_MARGIN_LEFT, 30, PSTR("Temperature"));
-        int_to_string(TUNE_TEMP, buffer, PSTR(DEGREE_SYMBOL));
+        int_to_string(WORD_SETTING(2), buffer, PSTR(DEGREE_SYMBOL));
 
         LCDMenu::drawMenuString(LCD_CHAR_MARGIN_LEFT + 12*LCD_CHAR_SPACING
                                 , 30
@@ -2551,7 +2377,7 @@ static void drawAutotuneSubmenu(uint8_t nr, uint8_t &flags)
             flags |= MENU_STATUSLINE;
         }
         lcd_lib_draw_stringP(LCD_CHAR_MARGIN_LEFT+5*LCD_CHAR_SPACING, 40, PSTR("Cycles"));
-        int_to_string(TUNE_CYCLES, buffer, NULL);
+        int_to_string(lcd_cache[2], buffer, NULL);
 
         LCDMenu::drawMenuString(LCD_CHAR_MARGIN_LEFT + 13*LCD_CHAR_SPACING
                                 , 40
@@ -2575,7 +2401,7 @@ static void lcd_menu_autotune_params()
         menu.drawSubMenu(drawAutotuneSubmenu, index, flags);
     }
 #if (TEMP_SENSOR_BED != 0)
-    if (TUNE_EXTRUDER == 0)
+    if (lcd_cache[1] == 0)
     {
         lcd_lib_draw_string_leftP(17, PSTR("Buildplate"));
     }
@@ -2585,7 +2411,7 @@ static void lcd_menu_autotune_params()
         lcd_lib_draw_string_leftP(17, PSTR("Extruder"));
 #if (EXTRUDERS > 1)
         char buffer[3] = {0};
-        int_to_string(TUNE_EXTRUDER, buffer, NULL);
+        int_to_string(lcd_cache[1], buffer, NULL);
         lcd_lib_draw_string(LCD_CHAR_MARGIN_LEFT + 9*LCD_CHAR_SPACING, 17, buffer);
 #endif
     }
@@ -2600,25 +2426,25 @@ static void lcd_menu_autotune_params()
 
 static bool autotune_callback(uint8_t state, uint8_t cycle, float kp, float ki, float kd)
 {
-    TUNE_CURRENTCYCLE = cycle;
-    if (TUNE_STATUS & AUTOTUNE_ABORT)
+    lcd_cache[3] = cycle;
+    if (lcd_cache[0] & AUTOTUNE_ABORT)
     {
         return false;
     }
     else
     {
-        TUNE_STATUS = state;
+        lcd_cache[0] = state;
         if (state & AUTOTUNE_OK)
         {
             // PID tuning successful
-            if (TUNE_EXTRUDER == 1)
+            if (lcd_cache[1] == 1)
             {
                 Kp = kp;
                 Ki = scalePID_i(ki);
                 Kd = scalePID_d(kd);
             }
 #if (EXTRUDERS > 1)
-            else if (TUNE_EXTRUDER == 2)
+            else if (lcd_cache[1] == 2)
             {
                 pid2[0] = kp;
                 pid2[1] = scalePID_i(ki);
@@ -2626,7 +2452,7 @@ static bool autotune_callback(uint8_t state, uint8_t cycle, float kp, float ki, 
             }
 #endif
 #if (TEMP_SENSOR_BED != 0)
-            else if (TUNE_EXTRUDER == 0)
+            else if (lcd_cache[1] == 0)
             {
                 bedKp = kp;
                 bedKi = scalePID_i(ki);
@@ -2647,13 +2473,13 @@ static void init_autotune_params()
 static void autotune_params_e1()
 {
     lcd_clear_cache();
-    TUNE_STATUS = 0; // status flag
-    TUNE_EXTRUDER = 1; // extruder 1
-    TUNE_CYCLES = 5; // cycles
-    TUNE_CURRENTCYCLE = 0; // current cycle
-    TUNE_TEMP = 150; // tuning temperature
-    TUNE_MINTEMP = 40; // min temperature
-    TUNE_MAXTEMP = get_maxtemp(0)-15; // max temperature
+    lcd_cache[0] = 0; // status flag
+    lcd_cache[1] = 1; // extruder 1
+    lcd_cache[2] = 5; // cycles
+    lcd_cache[3] = 0; // current cycle
+    WORD_SETTING(2) = 150; // tuning temperature
+    WORD_SETTING(3) = 40; // min temperature
+    WORD_SETTING(4) = get_maxtemp(0)-15; // max temperature
     menu.add_menu(menu_t(init_autotune_params, lcd_menu_autotune_params, NULL));
 }
 
@@ -2661,13 +2487,13 @@ static void autotune_params_e1()
 static void autotune_params_bed()
 {
     lcd_clear_cache();
-    TUNE_STATUS = 0; // status flag
-    TUNE_EXTRUDER = 0; // buildplate
-    TUNE_CYCLES = 5; // cycles
-    TUNE_CURRENTCYCLE = 0; // current cycle
-    TUNE_TEMP = 70; // tuning temperature
-    TUNE_MINTEMP = 40; // min temperature
-    TUNE_MAXTEMP = BED_MAXTEMP-15; // max temperature
+    lcd_cache[0] = 0; // status flag
+    lcd_cache[1] = 0; // buildplate
+    lcd_cache[2] = 5; // cycles
+    lcd_cache[3] = 0; // current cycle
+    WORD_SETTING(2) = 70; // tuning temperature
+    WORD_SETTING(3) = 40; // min temperature
+    WORD_SETTING(4) = BED_MAXTEMP-15; // max temperature
     menu.add_menu(menu_t(init_autotune_params, lcd_menu_autotune_params, NULL));
 }
 #endif
@@ -2676,13 +2502,13 @@ static void autotune_params_bed()
 static void autotune_params_e2()
 {
     lcd_clear_cache();
-    TUNE_STATUS = 0; // status flag
-    TUNE_EXTRUDER = 2; // extruder 2
-    TUNE_CYCLES = 5; // cycles
-    TUNE_CURRENTCYCLE = 0; // current cycle
-    TUNE_TEMP = 150; // tuning temperature
-    TUNE_MINTEMP = 40; // min temperature
-    TUNE_MAXTEMP = get_maxtemp(1)-15; // max temperature
+    lcd_cache[0] = 0; // status flag
+    lcd_cache[1] = 2; // extruder 2
+    lcd_cache[2] = 5; // cycles
+    lcd_cache[3] = 0; // current cycle
+    WORD_SETTING(2) = 150; // tuning temperature
+    WORD_SETTING(3) = 40; // min temperature
+    WORD_SETTING(4) = get_maxtemp(1)-15; // max temperature
     menu.add_menu(menu_t(init_autotune_params, lcd_menu_autotune_params, NULL));
 }
 #endif
@@ -2693,8 +2519,8 @@ static void init_tempcontrol_e1()
 void init_tempcontrol_e1()
 #endif
 {
-    PID_I = unscalePID_i(Ki);
-    PID_D = unscalePID_d(Kd);
+    FLOAT_SETTING(1) = unscalePID_i(Ki);
+    FLOAT_SETTING(2) = unscalePID_d(Kd);
     // menu.set_selection(1);
 }
 
@@ -2706,17 +2532,17 @@ static void lcd_store_pid()
 
 static void lcd_preset_e1_kd()
 {
-    if (lcd_tune_value(PID_D, 0.0f, 999.99f, 0.01f))
+    if (lcd_tune_value(FLOAT_SETTING(2), 0.0f, 999.99f, 0.01f))
     {
-        Kd = scalePID_d(PID_D);
+        Kd = scalePID_d(FLOAT_SETTING(2));
     }
 }
 
 static void lcd_preset_e1_ki()
 {
-    if (lcd_tune_value(PID_I, 0.0f, 999.99f, 0.01f))
+    if (lcd_tune_value(FLOAT_SETTING(1), 0.0f, 999.99f, 0.01f))
     {
-        Ki = scalePID_i(PID_I);
+        Ki = scalePID_i(FLOAT_SETTING(1));
     }
 }
 
@@ -2912,25 +2738,25 @@ void lcd_menu_tempcontrol_e1()
 #if EXTRUDERS > 1
 static void init_tempcontrol_e2()
 {
-    PID_I = unscalePID_i(pid2[1]);
-    PID_D = unscalePID_d(pid2[2]);
+    FLOAT_SETTING(1) = unscalePID_i(pid2[1]);
+    FLOAT_SETTING(2) = unscalePID_d(pid2[2]);
     // menu.set_selection(1);
 }
 
 
 static void lcd_preset_e2_kd()
 {
-    if (lcd_tune_value(PID_D, 0.0f, 999.99f, 0.01f))
+    if (lcd_tune_value(FLOAT_SETTING(2), 0.0f, 999.99f, 0.01f))
     {
-        pid2[2] = scalePID_d(PID_D);
+        pid2[2] = scalePID_d(FLOAT_SETTING(2));
     }
 }
 
 static void lcd_preset_e2_ki()
 {
-    if (lcd_tune_value(PID_I, 0.0f, 999.99f, 0.01f))
+    if (lcd_tune_value(FLOAT_SETTING(1), 0.0f, 999.99f, 0.01f))
     {
-        pid2[1] = scalePID_i(PID_I);
+        pid2[1] = scalePID_i(FLOAT_SETTING(1));
     }
 }
 
@@ -3063,7 +2889,7 @@ static void drawTempExtr2Submenu(uint8_t nr, uint8_t &flags)
             flags |= MENU_STATUSLINE;
         }
         lcd_lib_draw_stringP(LCD_GFX_WIDTH/2, 30, PSTR("Ki"));
-        float_to_string2(PID_I, buffer, NULL);
+        float_to_string2(FLOAT_SETTING(1), buffer, NULL);
 
         LCDMenu::drawMenuString(LCD_GFX_WIDTH - LCD_CHAR_MARGIN_RIGHT - 6*LCD_CHAR_SPACING
                                 , 30
@@ -3082,7 +2908,7 @@ static void drawTempExtr2Submenu(uint8_t nr, uint8_t &flags)
             flags |= MENU_STATUSLINE;
         }
         lcd_lib_draw_stringP(LCD_GFX_WIDTH/2, 40, PSTR("Kd"));
-        float_to_string2(PID_D, buffer, NULL);
+        float_to_string2(FLOAT_SETTING(2), buffer, NULL);
 
         LCDMenu::drawMenuString(LCD_GFX_WIDTH - LCD_CHAR_MARGIN_RIGHT - 6*LCD_CHAR_SPACING
                                 , 40
@@ -3121,8 +2947,8 @@ static void lcd_menu_tempcontrol_e2()
 #if defined(PIDTEMPBED) && (TEMP_SENSOR_BED != 0)
 static void init_tempcontrol_bed()
 {
-    PID_I = unscalePID_i(bedKi);
-    PID_D = unscalePID_d(bedKd);
+    FLOAT_SETTING(1) = unscalePID_i(bedKi);
+    FLOAT_SETTING(2) = unscalePID_d(bedKd);
     menu.set_selection(3);
 }
 
@@ -3154,17 +2980,17 @@ static void lcd_toggle_pid_bed()
 
 static void lcd_preset_bed_kd()
 {
-    if (lcd_tune_value(PID_D, 0.0f, 999.99f, 0.01f))
+    if (lcd_tune_value(FLOAT_SETTING(2), 0.0f, 999.99f, 0.01f))
     {
-        bedKd = scalePID_d(PID_D);
+        bedKd = scalePID_d(FLOAT_SETTING(2));
     }
 }
 
 static void lcd_preset_bed_ki()
 {
-    if (lcd_tune_value(PID_I, 0.0f, 999.99f, 0.01f))
+    if (lcd_tune_value(FLOAT_SETTING(1), 0.0f, 999.99f, 0.01f))
     {
-        bedKi = scalePID_i(PID_I);
+        bedKi = scalePID_i(FLOAT_SETTING(1));
     }
 }
 
@@ -3326,7 +3152,7 @@ static void drawTempBedSubmenu(uint8_t nr, uint8_t &flags)
             flags |= MENU_STATUSLINE;
         }
         lcd_lib_draw_stringP(LCD_GFX_WIDTH/2, 30, PSTR("Ki"));
-        float_to_string2(PID_I, buffer, NULL);
+        float_to_string2(FLOAT_SETTING(1), buffer, NULL);
 
         LCDMenu::drawMenuString(LCD_GFX_WIDTH - LCD_CHAR_MARGIN_RIGHT - 6*LCD_CHAR_SPACING
                                 , 30
@@ -3345,7 +3171,7 @@ static void drawTempBedSubmenu(uint8_t nr, uint8_t &flags)
             flags |= MENU_STATUSLINE;
         }
         lcd_lib_draw_stringP(LCD_GFX_WIDTH/2, 40, PSTR("Kd"));
-        float_to_string2(PID_D, buffer, NULL);
+        float_to_string2(FLOAT_SETTING(2), buffer, NULL);
 
         LCDMenu::drawMenuString(LCD_GFX_WIDTH - LCD_CHAR_MARGIN_RIGHT - 6*LCD_CHAR_SPACING
                                 , 40
@@ -3395,15 +3221,13 @@ static void lcd_tempcontrol_item(uint8_t nr, uint8_t offsetY, uint8_t flags)
     uint8_t index(0);
     char buffer[32] = {0};
     if (nr == index++)
-        strcpy_P(buffer, PSTR("< RETURN"));
+        lcd_cpyreturn(buffer);
     else if (nr == index++)
         strcpy_P(buffer, PSTR("Extruder 1"));
     else if (nr == index++)
         strcpy_P(buffer, PSTR("Extruder 2"));
     else if (nr == index++)
         strcpy_P(buffer, PSTR("Buildplate"));
-    else
-        strcpy_P(buffer, PSTR("???"));
 
     lcd_draw_scroll_entry(offsetY, buffer, flags);
 }

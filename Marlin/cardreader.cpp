@@ -8,6 +8,10 @@
 
 #ifdef SDSUPPORT
 
+#if (EXTRUDERS > 1)
+#include "commandbuffer.h"
+#endif
+
 CardReader::CardReader() :
    state(SD_CHECKAUTOSTART)
  , workDirDepth(0)
@@ -113,13 +117,13 @@ void  CardReader::lsDive(SdFile &parent, SdFile** parents, uint8_t dirDepth)
       }
       else if(lsAction==LS_Count)
       {
-        ++nrFiles;
+        nrFiles++;
       }
       else if(lsAction==LS_GetFilename)
       {
         if(cnt==nrFiles)
           return;
-        ++cnt;
+        cnt++;
       }
     }
   }
@@ -342,7 +346,7 @@ void CardReader::removeFile(const char* name)
         curDir=&myDir;
         dirname_start=dirname_end+1;
       }
-      else // the remainder after all /fsa/fdsa/ is the filename
+      else // the reminder after all /fsa/fdsa/ is the filename
       {
         fname=dirname_start;
         break;
@@ -439,6 +443,14 @@ void CardReader::checkautostart(bool force)
       return;
   }
 
+#if (EXTRUDERS > 1) && defined(TCSDSCRIPT)
+  if(!force)
+  {
+    // load command scripts
+    cmdBuffer.initScripts();
+  }
+#endif
+
   char autoname[30];
   sprintf_P(autoname, PSTR("auto%i.g"), lastnr);
 
@@ -481,8 +493,6 @@ void CardReader::closefile()
 {
   file.sync();
   file.close();
-//  saving = false;
-//  logging = false;
   state &= ~(SD_SAVING | SD_LOGGING);
 }
 
@@ -495,7 +505,7 @@ void CardReader::getfilename(const uint8_t nr)
   lsDive(*curDir, NULL, 0);
 }
 
-uint8_t CardReader::getnrfilenames()
+uint16_t CardReader::getnrfilenames()
 {
   curDir=&workDir;
   lsAction=LS_Count;
@@ -547,8 +557,6 @@ void CardReader::printingHasFinished()
     st_synchronize();
     quickStop();
     file.close();
-//    sdprinting = false;
-//    pause = false;
     state &= ~(SD_PRINTING | SD_PAUSE | SD_SAVING | SD_LOGGING);
     if(SD_FINISHED_STEPPERRELEASE)
     {
@@ -558,23 +566,20 @@ void CardReader::printingHasFinished()
     autotempShutdown();
 }
 
-void CardReader::getFilenameFromNr(uint8_t nr, char* buffer, uint8_t maxlen)
+void CardReader::getFilenameFromNr(char* buffer, uint8_t nr)
 {
 	getfilename(nr);
 	if (*longFilename)
 	{
-		strncpy(buffer, longFilename, maxlen);
+		strncpy(buffer, longFilename, LONG_FILENAME_LENGTH-1);
 	}
 	else
     {
-		strncpy(buffer, filename, maxlen);
+		strncpy(buffer, filename, LONG_FILENAME_LENGTH-1);
 	}
 	if (!filenameIsDir())
 	{
-		if (char *p = strrchr(buffer, '.'))
-        {
-            *p = '\0';
-        }
+		if (strrchr(buffer, '.')) strrchr(buffer, '.')[0] = '\0';
 	}
 }
 

@@ -37,7 +37,6 @@ void lcd_lib_keyclick();
 void lcd_lib_buttons_update();
 void lcd_lib_buttons_update_interrupt();
 void lcd_lib_led_color(uint8_t r, uint8_t g, uint8_t b);
-uint8_t lcd_lib_led_brightness();
 void lcd_lib_contrast(uint8_t data);
 
 extern int16_t lcd_lib_encoder_pos;
@@ -47,7 +46,7 @@ extern unsigned long last_user_interaction;
 extern uint8_t led_glow;
 extern uint8_t led_glow_dir;
 
-char* int_to_string(int i, char* temp_buffer, const char* p_postfix = NULL);
+char* int_to_string(int i, char* temp_buffer, const char* p_postfix = NULL, const char* p_prefix = NULL, bool bForceSign = false);
 char* int_to_time_string(unsigned long i, char* temp_buffer);
 char* float_to_string2(float f, char* temp_buffer, const char* p_postfix = NULL, const bool bForceSign = false);
 
@@ -62,14 +61,18 @@ char* float_to_string2(float f, char* temp_buffer, const char* p_postfix = NULL,
 #define LCD_CHAR_SPACING 6
 #define LCD_CHAR_HEIGHT 7
 
+extern uint16_t lineEntryPos;
+extern int8_t   lineEntryWait;
 #define LINE_ENTRY_STEP      2
 #define LINE_ENTRY_WAIT_END 24
-#define LINE_ENTRY_GFX_LENGTH  (LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-LCD_CHAR_MARGIN_LEFT)
-#define LINE_ENTRY_TEXT_LENGTH (LINE_ENTRY_GFX_LENGTH / LCD_CHAR_SPACING)
-#define LINE_ENTRY_TEXT_OFFSET ((lineEntryPos%LCD_CHAR_SPACING == 0) ? 0 : -1)
-#define LINE_ENTRY_TEXT_BEGIN  ((lineEntryPos + LCD_CHAR_SPACING-1) / LCD_CHAR_SPACING)
-#define LINE_ENTRY_GFX_BEGIN   (LCD_CHAR_SPACING-1 - (lineEntryPos + LCD_CHAR_SPACING-1) % LCD_CHAR_SPACING)
+#define LINE_ENTRY_GFX_LENGHT  (LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-LCD_CHAR_MARGIN_LEFT)
+#define LINE_ENTRY_TEXT_LENGHT (LINE_ENTRY_GFX_LENGHT / LCD_CHAR_SPACING)
+#define LINE_ENTRY_TEXT_OFFSET() ((lineEntryPos%LCD_CHAR_SPACING == 0) ? 0 : -1)
+#define LINE_ENTRY_TEXT_BEGIN()  ((lineEntryPos + LCD_CHAR_SPACING-1) / LCD_CHAR_SPACING)
+#define LINE_ENTRY_GFX_BEGIN()   (LCD_CHAR_SPACING-1 - (lineEntryPos + LCD_CHAR_SPACING-1) % LCD_CHAR_SPACING)
 #define LINE_ENTRY_MAX_STEP(text_length) ((text_length) * LCD_CHAR_SPACING)
+void line_entry_pos_update (uint16_t maxStep);
+FORCE_INLINE void line_entry_pos_reset() { lineEntryPos = lineEntryWait = 0; }
 
 FORCE_INLINE void lcd_lib_draw_string_left(uint8_t y, const char* str) { lcd_lib_draw_string(LCD_CHAR_MARGIN_LEFT, y, str); }
 FORCE_INLINE void lcd_lib_draw_string_leftP(uint8_t y, const char* pstr) { lcd_lib_draw_stringP(LCD_CHAR_MARGIN_LEFT, y, pstr); }
@@ -77,13 +80,6 @@ FORCE_INLINE void lcd_lib_draw_string_right(uint8_t x, uint8_t y, const char* st
 FORCE_INLINE void lcd_lib_draw_string_right(uint8_t y, const char* str) { lcd_lib_draw_string_right(LCD_GFX_WIDTH - LCD_CHAR_MARGIN_RIGHT, y, str); }
 FORCE_INLINE void lcd_lib_draw_string_rightP(uint8_t y, const char* pstr) { lcd_lib_draw_stringP(LCD_GFX_WIDTH - LCD_CHAR_MARGIN_RIGHT - (strlen_P(pstr) * LCD_CHAR_SPACING), y, pstr); }
 FORCE_INLINE void lcd_lib_draw_string_rightP(uint8_t x, uint8_t y, const char* pstr) { lcd_lib_draw_stringP(x - (strlen_P(pstr) * LCD_CHAR_SPACING), y, pstr); }
-
-#ifndef HAVE_STRLCAT
-size_t strlcat(char* dst, const char* src, size_t n);
-#endif // HAVE_STRLCAT
-#ifndef HAVE_STRLCPY
-size_t strlcpy(char* dst, const char* src, size_t n);
-#endif // HAVE_STRLCPY
 
 // norpchen font symbols
 #define DEGREE_SYMBOL "\x1F"

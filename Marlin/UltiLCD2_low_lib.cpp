@@ -105,9 +105,15 @@ void lcd_lib_init()
     SET_OUTPUT(I2C_SCL_PIN);
 
     //Set unused pins in the 10 pin connector to GND to improve shielding of the cable.
+  #if LCD_PINS_D4 > -1
     SET_OUTPUT(LCD_PINS_D4); WRITE(LCD_PINS_D4, 0); //RXD3/PJ1
+  #endif
+  #if LCD_PINS_ENABLE > -1
     SET_OUTPUT(LCD_PINS_ENABLE); WRITE(LCD_PINS_ENABLE, 0); //TXD3/PJ0
+  #endif
+  #if LCD_PINS_D7 > -1
     SET_OUTPUT(LCD_PINS_D7); WRITE(LCD_PINS_D7, 0); //PH3
+  #endif
 
     //Set the beeper as output.
     SET_OUTPUT(BEEPER);
@@ -195,18 +201,18 @@ void lcd_lib_init()
 }
 
 #if USE_TWI_INTERRUPT
-uint16_t lcd_update_pos = 0;
+volatile uint16_t lcd_update_pos = 0;
 ISR(TWI_vect)
 {
-    if (lcd_update_pos == LCD_GFX_WIDTH*LCD_GFX_HEIGHT/8u)
+    if (lcd_update_pos >= LCD_GFX_WIDTH*LCD_GFX_HEIGHT/8u)
     {
+        lcd_update_pos = 0;
         i2c_end();
     }
     else
     {
-        i2c_send_raw(lcd_buffer[lcd_update_pos]);
+        i2c_send_raw(lcd_buffer[lcd_update_pos++]);
         TWCR |= _BV(TWIE);
-        lcd_update_pos++;
     }
 }
 #endif
@@ -289,6 +295,11 @@ void lcd_lib_update_screen()
     if (!(sleep_state & SLEEP_LCD_DIMMED) || lcd_sleep_contrast)
     {
         // update screen content
+    #if USE_TWI_INTERRUPT
+        CRITICAL_SECTION_START
+        lcd_update_pos = 0;
+        CRITICAL_SECTION_END
+    #endif
         i2c_start();
         i2c_send_raw(I2C_LCD_ADDRESS << 1 | I2C_WRITE);
         //Set the drawing position to 0,0
@@ -301,7 +312,7 @@ void lcd_lib_update_screen()
         i2c_send_raw(I2C_LCD_ADDRESS << 1 | I2C_WRITE);
         i2c_send_raw(I2C_LCD_SEND_DATA);
     #if USE_TWI_INTERRUPT
-        lcd_update_pos = 0;
+        // enable TWI interrupts
         TWCR |= _BV(TWIE);
     #else
         for(uint16_t n=0;n<LCD_GFX_WIDTH*LCD_GFX_HEIGHT/8;n++)
@@ -329,16 +340,11 @@ void lcd_lib_led_color(uint8_t r, uint8_t g, uint8_t b)
     led_b = b;
 }
 
-uint8_t lcd_lib_led_brightness()
-{
-    uint16_t sum = (led_r+led_g+led_b);
-    return sum/3;
-}
-
 // norpchen
 // the baseline ASCII->font table offset.  Was 32 (space) but shifted down as I added custom characters to the font
 // had to add them to the start of the table, because we're using char, which are signed and top out at 128, which is already the max table value.
 #define FONT_BASE_CHAR 0x1D
+#define FONT_CHAR_WIDTH 5
 
 static const uint8_t lcd_font_7x5[] PROGMEM = {
 	0x11, 0x15, 0x0A, 0x00, 0x00,       // ^3 " CUBED_SYMBOL "
@@ -447,30 +453,28 @@ static const uint8_t lcd_font_7x5[] PROGMEM = {
 
 void lcd_lib_draw_string(uint8_t x, uint8_t y, const char* str)
 {
-    uint8_t* dst = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst2 = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
-    uint8_t yshift = y % 8;
+    uint8_t* dst = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst2 = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
+    uint8_t yshift = y & 0x07;
     uint8_t yshift2 = 8 - yshift;
-    while ((*str) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-5) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-5))
+    while ((*str) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH))
     {
-        const uint8_t* src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * 5;
+        const uint8_t* src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
 
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        dst++;
+        for (uint8_t i = 0; i<FONT_CHAR_WIDTH; ++i, ++dst, ++src)
+        {
+            *dst |= pgm_read_byte(src) << yshift;
+        }
+        ++dst;
 
         if (yshift != 0)
         {
-            src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * 5;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            dst2++;
+            src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
+            for (uint8_t i=0; i<FONT_CHAR_WIDTH; ++i, ++dst2, ++src)
+            {
+                *dst2 |= pgm_read_byte(src) >> yshift2;
+            }
+            ++dst2;
         }
         str++;
     }
@@ -478,103 +482,119 @@ void lcd_lib_draw_string(uint8_t x, uint8_t y, const char* str)
 
 void lcd_lib_clear_string(uint8_t x, uint8_t y, const char* str)
 {
-    uint8_t* dst = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst2 = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
-    uint8_t yshift = y % 8;
+    uint8_t* dst = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst2 = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
+    uint8_t yshift = y & 0x07;
     uint8_t yshift2 = 8 - yshift;
-    while ((*str) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-5) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-5))
+    while ((*str) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH))
     {
-        const uint8_t* src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * 5;
-
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        dst++;
+        const uint8_t* src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
+        for (uint8_t i=0; i<FONT_CHAR_WIDTH; ++i, ++dst, ++src)
+        {
+            *dst &= ~(pgm_read_byte(src) << yshift);
+        }
+        ++dst;
 
         if (yshift != 0)
         {
-            src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * 5;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            dst2++;
+            src = lcd_font_7x5 + (*str - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
+            for(uint8_t i=0; i<FONT_CHAR_WIDTH; ++i, ++dst2, ++src)
+            {
+                *dst2 &= ~(pgm_read_byte(src) >> yshift2);
+            }
+            ++dst2;
         }
         str++;
     }
 }
 
+void line_entry_pos_update (uint16_t maxStep)
+{
+	if (lineEntryPos > maxStep) lineEntryPos = 0;
+	//
+	lineEntryWait++;
+	if (lineEntryWait >= LINE_ENTRY_WAIT_END)
+	{
+		lineEntryWait = LINE_ENTRY_WAIT_END;
+		lineEntryPos += LINE_ENTRY_STEP;
+		if (lineEntryPos > maxStep)
+		{
+			lineEntryPos  = maxStep;
+			lineEntryWait = -lineEntryWait;
+		}
+	}
+	else if (lineEntryWait == 0 && lineEntryPos > 0)
+	{
+		lineEntryPos -= LINE_ENTRY_STEP;
+		lineEntryWait--;
+	}
+}
+
 void lcd_lib_draw_string_center(uint8_t y, const char* str)
 {
-    lcd_lib_draw_string(LCD_GFX_WIDTH/2 - min(strlen(str), LINE_ENTRY_TEXT_LENGTH) * (LCD_CHAR_SPACING/2), y, str);
+    lcd_lib_draw_string(LCD_GFX_WIDTH/2 - min(strlen(str), LINE_ENTRY_TEXT_LENGHT) * (LCD_CHAR_SPACING/2), y, str);
 }
 
 void lcd_lib_clear_string_center(uint8_t y, const char* str)
 {
-    lcd_lib_clear_string(LCD_GFX_WIDTH/2 - min(strlen(str), LINE_ENTRY_TEXT_LENGTH) * (LCD_CHAR_SPACING/2), y, str);
+    lcd_lib_clear_string(LCD_GFX_WIDTH/2 - min(strlen(str), LINE_ENTRY_TEXT_LENGHT) * (LCD_CHAR_SPACING/2), y, str);
 }
 
 void lcd_lib_draw_stringP(uint8_t x, uint8_t y, const char* pstr)
 {
-    uint8_t* dst = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst2 = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
-    uint8_t yshift = y % 8;
+    uint8_t* dst = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst2 = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
+    uint8_t yshift = y & 0x07;
     uint8_t yshift2 = 8 - yshift;
 
-    for(char c = pgm_read_byte(pstr); c && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-5) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-5); c = pgm_read_byte(++pstr))
+    for(char c = pgm_read_byte(pstr); c && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH); c = pgm_read_byte(++pstr))
     {
-        const uint8_t* src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * 5;
+        const uint8_t* src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
 
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        *dst = (*dst) | pgm_read_byte(src++) << yshift; dst++;
-        dst++;
+        for (uint8_t i=0; i<FONT_CHAR_WIDTH; ++i, ++dst, ++src)
+        {
+            *dst = (*dst) | pgm_read_byte(src) << yshift;
+        }
+        ++dst;
 
         if (yshift != 0)
         {
-            src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * 5;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            *dst2 = (*dst2) | pgm_read_byte(src++) >> yshift2; dst2++;
-            dst2++;
+            src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
+            for (uint8_t vline=0; vline < FONT_CHAR_WIDTH; ++vline, ++dst2, ++src)
+            {
+                *dst2 = (*dst2) | pgm_read_byte(src) >> yshift2;
+            }
+            ++dst2;
         }
     }
 }
 
 void lcd_lib_clear_stringP(uint8_t x, uint8_t y, const char* pstr)
 {
-    uint8_t* dst = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst2 = lcd_buffer + x + (y / 8) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
-    uint8_t yshift = y % 8;
+    uint8_t* dst = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst2 = lcd_buffer + x + (y >> 3) * LCD_GFX_WIDTH + LCD_GFX_WIDTH;
+    uint8_t yshift = y & 0x07;
     uint8_t yshift2 = 8 - yshift;
 
-    for(char c = pgm_read_byte(pstr); c && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-5) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-5); c = pgm_read_byte(++pstr))
+    for(char c = pgm_read_byte(pstr); c && ((dst-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH) && ((dst2-lcd_buffer) < LCD_BUFFER_SIZE-FONT_CHAR_WIDTH); c = pgm_read_byte(++pstr))
     {
-        const uint8_t* src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * 5;
+        const uint8_t* src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
 
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        *dst = (*dst) &~(pgm_read_byte(src++) << yshift); dst++;
-        dst++;
+        for (uint8_t i=0; i<FONT_CHAR_WIDTH; ++i, ++dst, ++src)
+        {
+            *dst &= ~(pgm_read_byte(src) << yshift);
+        }
+        ++dst;
 
         if (yshift != 0)
         {
-            src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * 5;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            *dst2 = (*dst2) &~(pgm_read_byte(src++) >> yshift2); dst2++;
-            dst2++;
+            src = lcd_font_7x5 + (c - FONT_BASE_CHAR) * FONT_CHAR_WIDTH;
+
+            for (uint8_t vline=0; vline < FONT_CHAR_WIDTH; ++vline, ++dst2, ++src)
+            {
+                *dst2 &= ~(pgm_read_byte(src) >> yshift2);
+            }
+            ++dst2;
         }
     }
 }
@@ -597,10 +617,13 @@ void lcd_lib_draw_string_center_atP(uint8_t x, uint8_t y, const char* pstr)
         char buf[10];
         strncpy_P(buf, pstr, split - pstr);
         buf[split - pstr] = '\0';
-        lcd_lib_draw_string(x - strlen(buf) * 3, y - 5, buf);
-        lcd_lib_draw_stringP(x - strlen_P(split+1) * 3, y + 5, split+1);
-    }else{
-        lcd_lib_draw_stringP(x - strlen_P(pstr) * 3, y, pstr);
+        lcd_lib_draw_string(x - strlen(buf) * LCD_CHAR_SPACING/2, y - 5, buf);
+        ++split;
+        lcd_lib_draw_stringP(x - strlen_P(split) * LCD_CHAR_SPACING/2, y + 5, split);
+    }
+    else
+    {
+        lcd_lib_draw_stringP(x - strlen_P(pstr) * LCD_CHAR_SPACING/2, y, pstr);
     }
 }
 
@@ -612,17 +635,20 @@ void lcd_lib_clear_string_center_atP(uint8_t x, uint8_t y, const char* pstr)
         char buf[10];
         strncpy_P(buf, pstr, split - pstr);
         buf[split - pstr] = '\0';
-        lcd_lib_clear_string(x - strlen(buf) * 3, y - 5, buf);
-        lcd_lib_clear_stringP(x - strlen_P(split+1) * 3, y + 5, split+1);
-    }else{
-        lcd_lib_clear_stringP(x - strlen_P(pstr) * 3, y, pstr);
+        lcd_lib_clear_string(x - strlen(buf) * LCD_CHAR_SPACING/2, y - 5, buf);
+        ++split;
+        lcd_lib_clear_stringP(x - strlen_P(split) * LCD_CHAR_SPACING/2, y + 5, split);
+    }
+    else
+    {
+        lcd_lib_clear_stringP(x - strlen_P(pstr) * LCD_CHAR_SPACING/2, y, pstr);
     }
 }
 
 void lcd_lib_draw_hline(uint8_t x0, uint8_t x1, uint8_t y)
 {
-    uint8_t* dst = lcd_buffer + x0 + (y / 8) * LCD_GFX_WIDTH;
-    uint8_t mask = 0x01 << (y % 8);
+    uint8_t* dst = lcd_buffer + x0 + (y >> 3) * LCD_GFX_WIDTH;
+    uint8_t mask = 0x01 << (y & 0x07);
 
     while ((x0 <= x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE))
     {
@@ -633,23 +659,23 @@ void lcd_lib_draw_hline(uint8_t x0, uint8_t x1, uint8_t y)
 
 void lcd_lib_draw_vline(uint8_t x, uint8_t y0, uint8_t y1)
 {
-    uint8_t* dst0 = lcd_buffer + x + (y0 / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst1 = lcd_buffer + x + (y1 / 8) * LCD_GFX_WIDTH;
+    uint8_t* dst0 = lcd_buffer + x + (y0 >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst1 = lcd_buffer + x + (y1 >> 3) * LCD_GFX_WIDTH;
 
     if (((dst0-lcd_buffer) < LCD_BUFFER_SIZE) && ((dst1-lcd_buffer) < LCD_BUFFER_SIZE))
     {
         if (dst0 == dst1)
         {
-            *dst0 |= (0xFF << (y0 % 8)) & (0xFF >> (7 - (y1 % 8)));
+            *dst0 |= (0xFF << (y0 & 0x07)) & (0xFF >> (7 - (y1 & 0x07)));
         }else{
-            *dst0 |= 0xFF << (y0 % 8);
+            *dst0 |= 0xFF << (y0 & 0x07);
             dst0 += LCD_GFX_WIDTH;
             while(dst0 != dst1)
             {
                 *dst0 = 0xFF;
                 dst0 += LCD_GFX_WIDTH;
             }
-            *dst1 |= 0xFF >> (7 - (y1 % 8));
+            *dst1 |= 0xFF >> (7 - (y1 & 0x07));
         }
     }
 }
@@ -664,14 +690,14 @@ void lcd_lib_draw_box(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 
 void lcd_lib_draw_shade(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 {
-    uint8_t* dst0 = lcd_buffer + x0 + (y0 / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst1 = lcd_buffer + x0 + (y1 / 8) * LCD_GFX_WIDTH;
+    uint8_t* dst0 = lcd_buffer + x0 + (y0 >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst1 = lcd_buffer + x0 + (y1 >> 3) * LCD_GFX_WIDTH;
     if (dst0 == dst1)
     {
         //uint8_t mask = (0xFF << (y0 % 8)) & (0xFF >> (7 - (y1 % 8)));
         //*dstA0 |= (mask & 0xEE);
     }else{
-        uint8_t mask = 0xFF << (y0 % 8);
+        uint8_t mask = 0xFF << (y0 & 0x07);
         uint8_t* dst = dst0;
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ |= mask & ((x & 1) ? 0xAA : 0x55);
@@ -684,7 +710,7 @@ void lcd_lib_draw_shade(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
             dst0 += LCD_GFX_WIDTH;
         }
         dst = dst1;
-        mask = 0xFF >> (7 - (y1 % 8));
+        mask = 0xFF >> (7 - (y1 & 0x07));
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ |= mask & ((x & 1) ? 0xAA : 0x55);
     }
@@ -702,15 +728,15 @@ void lcd_lib_set()
 
 void lcd_lib_clear(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 {
-    uint8_t* dst0 = lcd_buffer + x0 + (y0 / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst1 = lcd_buffer + x0 + (y1 / 8) * LCD_GFX_WIDTH;
+    uint8_t* dst0 = lcd_buffer + x0 + (y0 >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst1 = lcd_buffer + x0 + (y1 >> 3) * LCD_GFX_WIDTH;
     if (dst0 == dst1)
     {
-        uint8_t mask = (0xFF << (y0 % 8)) & (0xFF >> (7 - (y1 % 8)));
+        uint8_t mask = (0xFF << (y0 & 0x07)) & (0xFF >> (7 - (y1 & 0x07)));
         for(uint8_t x=x0; (x<=x1) && ((dst0-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst0++ &=~mask;
     }else{
-        uint8_t mask = 0xFF << (y0 % 8);
+        uint8_t mask = 0xFF << (y0 & 0x07);
         uint8_t* dst = dst0;
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ &=~mask;
@@ -723,7 +749,7 @@ void lcd_lib_clear(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
             dst0 += LCD_GFX_WIDTH;
         }
         dst = dst1;
-        mask = 0xFF >> (7 - (y1 % 8));
+        mask = 0xFF >> (7 - (y1 & 0x07));
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ &=~mask;
     }
@@ -731,15 +757,15 @@ void lcd_lib_clear(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 
 void lcd_lib_invert(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 {
-    uint8_t* dst0 = lcd_buffer + x0 + (y0 / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst1 = lcd_buffer + x0 + (y1 / 8) * LCD_GFX_WIDTH;
+    uint8_t* dst0 = lcd_buffer + x0 + (y0 >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst1 = lcd_buffer + x0 + (y1 >> 3) * LCD_GFX_WIDTH;
     if (dst0 == dst1)
     {
-        uint8_t mask = (0xFF << (y0 % 8)) & (0xFF >> (7 - (y1 % 8)));
+        uint8_t mask = (0xFF << (y0 & 0x07)) & (0xFF >> (7 - (y1 & 0x07)));
         for(uint8_t x=x0; (x<=x1) && ((dst0-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst0++ ^= mask;
     }else{
-        uint8_t mask = 0xFF << (y0 % 8);
+        uint8_t mask = 0xFF << (y0 & 0x07);
         uint8_t* dst = dst0;
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ ^= mask;
@@ -752,7 +778,7 @@ void lcd_lib_invert(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
             dst0 += LCD_GFX_WIDTH;
         }
         dst = dst1;
-        mask = 0xFF >> (7 - (y1 % 8));
+        mask = 0xFF >> (7 - (y1 & 0x07));
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ ^= mask;
     }
@@ -760,15 +786,15 @@ void lcd_lib_invert(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 
 void lcd_lib_set(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 {
-    uint8_t* dst0 = lcd_buffer + x0 + (y0 / 8) * LCD_GFX_WIDTH;
-    uint8_t* dst1 = lcd_buffer + x0 + (y1 / 8) * LCD_GFX_WIDTH;
+    uint8_t* dst0 = lcd_buffer + x0 + (y0 >> 3) * LCD_GFX_WIDTH;
+    uint8_t* dst1 = lcd_buffer + x0 + (y1 >> 3) * LCD_GFX_WIDTH;
     if (dst0 == dst1)
     {
-        uint8_t mask = (0xFF << (y0 % 8)) & (0xFF >> (7 - (y1 % 8)));
+        uint8_t mask = (0xFF << (y0 & 0x07)) & (0xFF >> (7 - (y1 & 0x07)));
         for(uint8_t x=x0; (x<=x1) && ((dst0-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst0++ |= mask;
     }else{
-        uint8_t mask = 0xFF << (y0 % 8);
+        uint8_t mask = 0xFF << (y0 & 0x07);
         uint8_t* dst = dst0;
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ |= mask;
@@ -781,7 +807,7 @@ void lcd_lib_set(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
             dst0 += LCD_GFX_WIDTH;
         }
         dst = dst1;
-        mask = 0xFF >> (7 - (y1 % 8));
+        mask = 0xFF >> (7 - (y1 & 0x07));
         for(uint8_t x=x0; (x<=x1) && ((dst-lcd_buffer) < LCD_BUFFER_SIZE); x++)
             *dst++ |= mask;
     }
@@ -790,10 +816,10 @@ void lcd_lib_set(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
 void lcd_lib_draw_gfx(uint8_t x, uint8_t y, const uint8_t* gfx)
 {
     uint8_t w = pgm_read_byte(gfx++);
-    uint8_t h = (pgm_read_byte(gfx++) + 7) / 8;
-    uint8_t shift = y % 8;
+    uint8_t h = (pgm_read_byte(gfx++) + 7) >> 3;
+    uint8_t shift = y & 0x07;
     uint8_t shift2 = 8 - shift;
-    y /= 8;
+    y >>= 3;
 
     for(; h; h--)
     {
@@ -815,10 +841,10 @@ void lcd_lib_draw_gfx(uint8_t x, uint8_t y, const uint8_t* gfx)
 void lcd_lib_clear_gfx(uint8_t x, uint8_t y, const uint8_t* gfx)
 {
     uint8_t w = pgm_read_byte(gfx++);
-    uint8_t h = (pgm_read_byte(gfx++) + 7) / 8;
-    uint8_t shift = y % 8;
+    uint8_t h = (pgm_read_byte(gfx++) + 7) >> 3;
+    uint8_t shift = y & 0x07;
     uint8_t shift2 = 8 - shift;
-    y /= 8;
+    y >>= 3;
 
     for(; h; h--)
     {
@@ -941,13 +967,22 @@ void lcd_lib_buttons_update()
     lcd_lib_encoder_pos_interrupt = 0;
 }
 
-char* int_to_string(int i, char* temp_buffer, const char* p_postfix)
+char* int_to_string(int i, char* temp_buffer, const char* p_postfix, const char* p_prefix, bool bForceSign)
 {
     char* c = temp_buffer;
+    if (p_prefix)
+    {
+        strcpy_P(c, p_prefix);
+        c += strlen_P(p_prefix);
+    }
     if (i < 0)
     {
         *c++ = '-';
         i = -i;
+    }
+    else if (bForceSign && i > 0)
+    {
+        *c++ = '+';
     }
     if (i >= 10000)
         *c++ = ((i/10000)%10)+'0';
@@ -1056,75 +1091,5 @@ char* float_to_string2(float f, char* temp_buffer, const char* p_postfix, const 
     *c = '\0';
     return c;
 }
-
-#ifndef HAVE_STRLCAT
-/*
- * concatenate two strings
- */
-size_t strlcat(char* dst, const char* src, size_t n)
-{
-  size_t    srclen;         /* Length of source string */
-  size_t    dstlen;         /* Length of destination string */
-
- /*
-  * Figure out how much room is left...
-  */
-
-  dstlen = strlen(dst);
-  n   -= dstlen + 1;
-
-  if (!n)
-    return (dstlen);        /* No room, return immediately... */
-
- /*
-  * Figure out how much room is needed...
-  */
-
-  srclen = strlen(src);
-
- /*
-  * Copy the appropriate amount...
-  */
-
-  if (srclen > n)
-    srclen = n;
-
-  memcpy(dst + dstlen, src, srclen);
-  dst[dstlen + srclen] = '\0';
-
-  return (dstlen + srclen);
-}
-#endif /* !HAVE_STRLCAT */
-
-#ifndef HAVE_STRLCPY
-/*
- * copy string
- */
-size_t strlcpy(char* dst, const char* src, size_t n)
-{
-  size_t    srclen;         /* Length of source string */
-
- /*
-  * Figure out how much room is needed...
-  */
-
-  n--;
-
-  srclen = strlen(src);
-
- /*
-  * Copy the appropriate amount...
-  */
-
-  if (srclen > n)
-    srclen = n;
-
-  memcpy(dst, src, srclen);
-  dst[srclen] = '\0';
-
-  return (srclen);
-}
-#endif /* !HAVE_STRLCPY */
-
 
 #endif//ENABLE_ULTILCD2

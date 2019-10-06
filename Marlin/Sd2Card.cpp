@@ -488,12 +488,12 @@ bool Sd2Card::readData(uint8_t* dst, uint16_t count) {
     }
 }
   chipSelectHigh();
-  spiSend(0XFF); // Purge pending status byte. Required by Toshiba Flash Air SD Card
+//  spiSend(0XFF); // Purge pending status byte. Required by Toshiba Flash Air SD Card
   return true;
 
  fail:
   chipSelectHigh();
-  spiSend(0XFF); // Send an additional dummy byte, required by Toshiba Flash Air SD Card
+//  spiSend(0XFF); // Send an additional dummy byte, required by Toshiba Flash Air SD Card
   return false;
 }
 //------------------------------------------------------------------------------

@@ -213,13 +213,15 @@ SRC = wiring.c hooks.c \
 	wiring_shift.c WInterrupts.c
 CXXSRC = UltiLCD2.cpp UltiLCD2_gfx.cpp UltiLCD2_hi_lib.cpp UltiLCD2_low_lib.cpp \
 	UltiLCD2_menu_first_run.cpp UltiLCD2_menu_maintenance.cpp UltiLCD2_menu_material.cpp \
-	UltiLCD2_menu_print.cpp lifetime_stats.cpp UltiLCD2_menu_main.cpp powerbudget.cpp
-CXXSRC += UltiLCD2_menu_utils.cpp UltiLCD2_menu_prefs.cpp tinkergnome.cpp  \
+	UltiLCD2_menu_print.cpp lifetime_stats.cpp UltiLCD2_menu_main.cpp \
+	UltiLCD2_menu_dual.cpp powerbudget.cpp
+CXXSRC += UltiLCD2_menu_utils.cpp UltiLCD2_menu_prefs.cpp tinkergnome.cpp \
+	Sd2Card.cpp SdBaseFile.cpp SdFile.cpp SdVolume.cpp cardreader.cpp \
+	ConfigurationDual.cpp commandbuffer.cpp \
 	machinesettings.cpp filament_sensor.cpp new.cpp
 CXXSRC += WMath.cpp WString.cpp Print.cpp Marlin_main.cpp	\
-	MarlinSerial.cpp Sd2Card.cpp SdBaseFile.cpp SdFile.cpp \
-	SdVolume.cpp motion_control.cpp planner.cpp \
-	stepper.cpp temperature.cpp cardreader.cpp ConfigurationStore.cpp \
+	MarlinSerial.cpp motion_control.cpp planner.cpp \
+	stepper.cpp temperature.cpp ConfigurationStore.cpp \
 	watchdog.cpp electronics_test.cpp
 #CXXSRC += LiquidCrystal.cpp ultralcd.cpp SPI.cpp Servo.cpp Tone.cpp
 
@@ -283,6 +285,7 @@ CDEBUG = -g$(DEBUG)
 CWARN = -Wall -Wstrict-prototypes
 CTUNING = -funsigned-char -funsigned-bitfields -fpack-struct \
 	-fshort-enums -w -ffunction-sections -fdata-sections \
+	-fno-split-wide-types -fno-inline-small-functions \
 	-DARDUINO=$(ARDUINO_VERSION)
 ifneq ($(HARDWARE_MOTHERBOARD),)
 CTUNING += -DMOTHERBOARD=${HARDWARE_MOTHERBOARD}

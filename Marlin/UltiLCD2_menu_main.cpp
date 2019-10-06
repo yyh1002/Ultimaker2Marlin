@@ -12,19 +12,21 @@
 #include "UltiLCD2_menu_utils.h"
 #include "tinkergnome.h"
 #include "machinesettings.h"
-#include "cardreader.h"
 #include "preferences.h"
-
-#define PREHEAT_FLAG(n) (cache._bool[2*LCD_CACHE_COUNT+n])
+#include "commandbuffer.h"
+#if (EXTRUDERS > 1)
+#include "UltiLCD2_menu_dual.h"
+#endif
+#define PREHEAT_FLAG(n) (lcd_cache[2*LCD_CACHE_COUNT+n])
 
 static void lcd_main_preheat();
 
 #define BREAKOUT_PADDLE_WIDTH 21
 //Use the lcd_cache memory to store breakout data, so we do not waste memory.
-#define ball_x (cache._int16[8])
-#define ball_y (cache._int16[9])
-#define ball_dx (cache._int16[10])
-#define ball_dy (cache._int16[11])
+#define ball_x (*(int16_t*)&lcd_cache[3*5])
+#define ball_y (*(int16_t*)&lcd_cache[3*5+2])
+#define ball_dx (*(int16_t*)&lcd_cache[3*5+4])
+#define ball_dy (*(int16_t*)&lcd_cache[3*5+6])
 static void lcd_menu_breakout()
 {
     if (lcd_lib_encoder_pos == ENCODER_NO_SELECTION)
@@ -32,7 +34,7 @@ static void lcd_menu_breakout()
         lcd_lib_encoder_pos = (128 - BREAKOUT_PADDLE_WIDTH) / 2 / 2;
         for(uint8_t y=0; y<3;y++)
             for(uint8_t x=0; x<5;x++)
-                cache._byte[x+y*5] = 3;
+                lcd_cache[x+y*5] = 3;
         ball_x = 0;
         ball_y = 57 << 8;
         ball_dx = 0;
@@ -50,14 +52,14 @@ static void lcd_menu_breakout()
     {
         uint8_t x = (ball_x >> 8) / 25;
         uint8_t y = (ball_y >> 8) / 10;
-        if (cache._byte[x+y*5])
+        if (lcd_cache[x+y*5])
         {
-            cache._byte[x+y*5]--;
+            lcd_cache[x+y*5]--;
             ball_dy = abs(ball_dy);
             for(y=0; y<3;y++)
             {
                 for(x=0; x<5;x++)
-                    if (cache._byte[x+y*5])
+                    if (lcd_cache[x+y*5])
                         break;
                 if (x != 5)
                     break;
@@ -66,7 +68,7 @@ static void lcd_menu_breakout()
             {
                 for(y=0; y<3;y++)
                     for(x=0; x<5;x++)
-                        cache._byte[x+y*5] = 3;
+                        lcd_cache[x+y*5] = 3;
             }
         }
     }
@@ -93,11 +95,11 @@ static void lcd_menu_breakout()
     for(uint8_t y=0; y<3;y++)
         for(uint8_t x=0; x<5;x++)
         {
-            if (cache._byte[x+y*5])
+            if (lcd_cache[x+y*5])
                 lcd_lib_draw_box(3 + x*25, 2 + y * 10, 23 + x*25, 10 + y * 10);
-            if (cache._byte[x+y*5] == 2)
+            if (lcd_cache[x+y*5] == 2)
                 lcd_lib_draw_shade(4 + x*25, 3 + y * 10, 22 + x*25, 9 + y * 10);
-            if (cache._byte[x+y*5] == 3)
+            if (lcd_cache[x+y*5] == 3)
                 lcd_lib_set(4 + x*25, 3 + y * 10, 22 + x*25, 9 + y * 10);
         }
 
@@ -111,7 +113,7 @@ static void lcd_cooldown()
     for(uint8_t n=0; n<EXTRUDERS; ++n)
     {
         PREHEAT_FLAG(n) = 0;
-        cooldownHotend(n);
+        setTargetHotend(0, n);
     }
 
 #if TEMP_SENSOR_BED != 0
@@ -167,7 +169,7 @@ void lcd_dual_material_change()
 static void init_material_settings()
 {
 #if EXTRUDERS < 2
-    active_extruder = 0;
+    menu_extruder = 0;
     start_material_settings();
 #else
     menu.add_menu(menu_t(lcd_dual_material_settings, MAIN_MENU_ITEM_POS(active_extruder ? 1 : 0)));
@@ -177,7 +179,7 @@ static void init_material_settings()
 static void init_material_move()
 {
 #if EXTRUDERS < 2
-    active_extruder = 0;
+    menu_extruder = 0;
     start_move_material();
 #else
     menu.add_menu(menu_t(lcd_dual_move_material, MAIN_MENU_ITEM_POS(active_extruder ? 1 : 0)));
@@ -187,7 +189,7 @@ static void init_material_move()
 static void init_material_change()
 {
 #if EXTRUDERS < 2
-    active_extruder = 0;
+    menu_extruder = 0;
     start_material_change();
 #else
     menu.add_menu(menu_t(lcd_dual_material_change, MAIN_MENU_ITEM_POS(active_extruder ? 1 : 0)));
@@ -204,10 +206,11 @@ static void lcd_main_print()
 
 static void lcd_toggle_preheat_nozzle(uint8_t e)
 {
+    target_temperature_diff[e] = 0;
     PREHEAT_FLAG(e) = !PREHEAT_FLAG(e);
     if (!PREHEAT_FLAG(e))
     {
-        cooldownHotend(e);
+        setTargetHotend(0, e);
     }
 }
 
@@ -242,14 +245,11 @@ FORCE_INLINE static void lcd_preheat_tune_nozzle1()
 #if TEMP_SENSOR_BED != 0
 static void lcd_toggle_preheat_bed()
 {
+    target_temperature_bed_diff = 0;
     PREHEAT_FLAG(EXTRUDERS) = !PREHEAT_FLAG(EXTRUDERS);
     if (PREHEAT_FLAG(EXTRUDERS))
     {
-  #if EXTRUDERS == 2
-        setTargetBed(material[swapExtruders() ? 1 : 0].bed_temperature);
-  #else
         setTargetBed(material[0].bed_temperature);
-  #endif
     }
     else
     {
@@ -279,16 +279,16 @@ static void add_preheat_menu()
 {
     // init preheat temperature settings
 #if TEMP_SENSOR_BED != 0
-  #if EXTRUDERS == 2
-    setTargetBed(material[swapExtruders() ? 1 : 0].bed_temperature);
-  #else
+    target_temperature_bed_diff = 0;
     setTargetBed(material[0].bed_temperature);
-  #endif
+    PREHEAT_FLAG(EXTRUDERS) = (target_temperature_bed > 0);
 #endif
 
     for(uint8_t e=0; e<EXTRUDERS; ++e)
     {
-        cooldownHotend(e);
+        PREHEAT_FLAG(e) = 0;
+        setTargetHotend(0, e);
+        target_temperature_diff[e] = 0;
     }
     printing_state = PRINT_STATE_HEATING;
     menu.add_menu(menu_t(init_preheat, lcd_main_preheat, NULL, MAIN_MENU_ITEM_POS(0)));
@@ -521,11 +521,11 @@ static void drawPreheatSubmenu (uint8_t nr, uint8_t &flags)
 #else
             strcpy_P(buffer, PSTR("Nozzle(1) "));
 #endif
-            int_to_string(target_temperature[0], int_to_string(dsp_temperature[0], buffer+strlen(buffer), PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
+            int_to_string(int(degTargetHotend(0)), int_to_string(dsp_temperature[0], buffer+strlen(buffer), PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
             lcd_lib_draw_string_left(5, buffer);
             flags |= MENU_STATUSLINE;
         }
-        int_to_string(target_temperature[0], buffer, PSTR(DEGREE_SYMBOL));
+        int_to_string(int(degTargetHotend(0)), buffer, PSTR(DEGREE_SYMBOL));
         LCDMenu::drawMenuString(LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-4*LCD_CHAR_SPACING
                           , 47-(EXTRUDERS*LCD_LINE_HEIGHT)-(BED_MENU_OFFSET*LCD_LINE_HEIGHT)
                           , 24
@@ -541,11 +541,11 @@ static void drawPreheatSubmenu (uint8_t nr, uint8_t &flags)
         if (flags & (MENU_SELECTED | MENU_ACTIVE))
         {
             strcpy_P(buffer, PSTR("Nozzle(2) "));
-            int_to_string(target_temperature[1], int_to_string(dsp_temperature[1], buffer+strlen(buffer), PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
+            int_to_string(int(degTargetHotend(1)), int_to_string(dsp_temperature[1], buffer+strlen(buffer), PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
             lcd_lib_draw_string_left(5, buffer);
             flags |= MENU_STATUSLINE;
         }
-        int_to_string(target_temperature[1], buffer, PSTR(DEGREE_SYMBOL));
+        int_to_string(int(degTargetHotend(1)), buffer, PSTR(DEGREE_SYMBOL));
         LCDMenu::drawMenuString(LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-4*LCD_CHAR_SPACING
                               , 39-(BED_MENU_OFFSET*LCD_LINE_HEIGHT)
                               , 24
@@ -562,11 +562,11 @@ static void drawPreheatSubmenu (uint8_t nr, uint8_t &flags)
         if (flags & (MENU_SELECTED | MENU_ACTIVE))
         {
             strcpy_P(buffer, PSTR("Buildplate "));
-            int_to_string(target_temperature_bed, int_to_string(dsp_temperature_bed, buffer+strlen(buffer), PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
+            int_to_string(int(degTargetBed()), int_to_string(dsp_temperature_bed, buffer+strlen(buffer), PSTR(DEGREE_SLASH)), PSTR(DEGREE_SYMBOL));
             lcd_lib_draw_string_left(5, buffer);
             flags |= MENU_STATUSLINE;
         }
-        int_to_string(target_temperature_bed, buffer, PSTR(DEGREE_SYMBOL));
+        int_to_string(int(degTargetBed()), buffer, PSTR(DEGREE_SYMBOL));
         LCDMenu::drawMenuString(LCD_GFX_WIDTH-LCD_CHAR_MARGIN_RIGHT-4*LCD_CHAR_SPACING
                               , 40
                               , 24
@@ -584,9 +584,8 @@ static void lcd_main_preheat()
     lcd_lib_draw_hline(3, 124, 13);
 
     char buffer[32] = {0};
-
 #if TEMP_SENSOR_BED != 0
-    if ((!PREHEAT_FLAG(EXTRUDERS)) | (current_temperature_bed > target_temperature_bed - 10))
+    if ((!PREHEAT_FLAG(EXTRUDERS)) | (current_temperature_bed > degTargetBed() - 10))
     {
 #endif
         // set preheat nozzle temperature

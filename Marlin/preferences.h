@@ -4,26 +4,26 @@
 #include "Marlin.h"
 #include "fastio.h"
 
-#define EEPROM_UI_MODE_OFFSET 0x401
-#define EEPROM_LED_TIMEOUT_OFFSET 0x402
-#define EEPROM_LCD_TIMEOUT_OFFSET 0x404
-#define EEPROM_LCD_CONTRAST_OFFSET 0x406
-#define EEPROM_EXPERT_VERSION_OFFSET 0x407
-#define EEPROM_SLEEP_BRIGHTNESS_OFFSET 0x409
-#define EEPROM_SLEEP_CONTRAST_OFFSET 0x40A
+#define EEPROM_UI_MODE_OFFSET 0x0401
+#define EEPROM_LED_TIMEOUT_OFFSET 0x0402
+#define EEPROM_LCD_TIMEOUT_OFFSET 0x0404
+#define EEPROM_LCD_CONTRAST_OFFSET 0x0406
+#define EEPROM_EXPERT_VERSION_OFFSET 0x0407
+#define EEPROM_SLEEP_BRIGHTNESS_OFFSET 0x0409
+#define EEPROM_SLEEP_CONTRAST_OFFSET 0x0040A
 #define EEPROM_SLEEP_GLOW_OFFSET 0x40B
-#define EEPROM_PID_FLAGS 0x40C
-#define EEPROM_HEATER_TIMEOUT 0x40D
-#define EEPROM_AXIS_LIMITS 0x40E  // 24 Byte
-#define EEPROM_END_RETRACT 0x426  // 4 Byte
-#define EEPROM_HEATER_CHECK_TEMP 0x42A  // 1 Byte
-#define EEPROM_HEATER_CHECK_TIME 0x42B  // 1 Byte
-#define EEPROM_PID_2 0x42C  // 12 Byte
-#define EEPROM_MOTOR_CURRENT_E2 0x438  // 2 Byte
-#define EEPROM_PID_BED 0x43A  // 12 Byte
-#define EEPROM_STEPS_E2 0x446  // 4 Byte
-#define EEPROM_AXIS_DIRECTION 0x44A  // 1 Byte
-#define EEPROM_RESERVED 0x44B  // next position
+#define EEPROM_PID_FLAGS 0x040C
+#define EEPROM_HEATER_TIMEOUT 0x040D
+#define EEPROM_AXIS_LIMITS 0x040E  // 24 Byte
+#define EEPROM_END_RETRACT 0x0426  // 4 Byte
+#define EEPROM_HEATER_CHECK_TEMP 0x042A  // 1 Byte
+#define EEPROM_HEATER_CHECK_TIME 0x042B  // 1 Byte
+#define EEPROM_PID_2 0x042C  // 12 Byte
+#define EEPROM_MOTOR_CURRENT_E2 0x0438  // 2 Byte
+#define EEPROM_PID_BED 0x043A  // 12 Byte
+#define EEPROM_STEPS_E2 0x0446  // 4 Byte
+#define EEPROM_AXIS_DIRECTION 0x044A  // 1 Byte
+#define EEPROM_RESERVED 0x044B  // next position
 
 #define GET_UI_MODE() (eeprom_read_byte((const uint8_t*)EEPROM_UI_MODE_OFFSET))
 #define SET_UI_MODE(n) do { eeprom_write_byte((uint8_t*)EEPROM_UI_MODE_OFFSET, n); } while(0)
@@ -59,13 +59,11 @@
 #define SET_AXIS_DIRECTION(n) do { eeprom_write_byte((uint8_t*)EEPROM_AXIS_DIRECTION, n); } while(0)
 
 // UI Mode
-// UI Mode
 #define UI_MODE_EXPERT    0x01
 #define UI_SCROLL_ENTRY   0x02
 
 #define UI_BEEP_SHORT     0x20
 #define UI_BEEP_OFF       0x40
-
 
 // SLEEP/LCD/SERIAL STATE
 #define SLEEP_LED_DIMMED     0x01
@@ -80,9 +78,9 @@
 // control flags
 #define FLAG_PID_NOZZLE      0x01
 #define FLAG_PID_BED         0x02
-#define FLAG_SWAP_EXTRUDERS  0x04
+// #define FLAG_SWAP_EXTRUDERS  0x04
 #define FLAG_MANUAL_FAN2     0x08
-#define FLAG_RESERVED_4      0x10
+#define FLAG_SEPARATE_FAN    0x10
 #define FLAG_RESERVED_5      0x20
 #define FLAG_RESERVED_6      0x40
 #define FLAG_RESERVED_7      0x80
@@ -113,9 +111,8 @@ extern uint16_t motor_current_e2;
 
 FORCE_INLINE bool pidTempBed() { return (control_flags & FLAG_PID_BED); }
 
-#if EXTRUDERS > 1
-FORCE_INLINE bool swapExtruders() { return (control_flags & FLAG_SWAP_EXTRUDERS); }
-#endif
+#define WORD_SETTING(n) (*(uint16_t*)&lcd_cache[(n) * sizeof(uint16_t)])
+#define FLOAT_SETTING(n) (*(float*)&lcd_cache[(n) * sizeof(float)])
 
 #define HAS_SERIAL_CMD (sleep_state & SLEEP_SERIAL_CMD)
 

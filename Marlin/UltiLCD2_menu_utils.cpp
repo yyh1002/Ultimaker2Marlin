@@ -5,7 +5,6 @@
 #include "UltiLCD2_menu_utils.h"
 #include "UltiLCD2_hi_lib.h"
 #include "UltiLCD2.h"
-#include "cardreader.h"
 
 #define LCD_TIMEOUT_TO_STATUS (MILLISECONDS_PER_SECOND*30UL)		// 30 Sec.
 
@@ -45,8 +44,10 @@ void LCDMenu::init_menu_switch(bool beep)
     {
         lcd_lib_keyclick();
     }
+#if FAN2_PIN != LED_PIN
     if (!(sleep_state & SLEEP_LED_OFF) && (led_mode == LED_MODE_ALWAYS_ON))
         analogWrite(LED_PIN, 255 * int(led_brightness_level) / 100);
+#endif
 }
 
 void LCDMenu::init_menu(menu_t mainMenu, bool beep)
@@ -496,6 +497,17 @@ bool lcd_tune_value(uint16_t &value, uint16_t _min, uint16_t _max)
 }
 
 bool lcd_tune_value(uint8_t &value, uint8_t _min, uint8_t _max)
+{
+    int iValue = value;
+    if (lcd_tune_value(iValue, _min, _max))
+    {
+        value = iValue;
+        return true;
+    }
+    return false;
+}
+
+bool lcd_tune_value(int8_t &value, int8_t _min, int8_t _max)
 {
     int iValue = value;
     if (lcd_tune_value(iValue, _min, _max))

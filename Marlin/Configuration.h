@@ -12,7 +12,7 @@
 // build by the user have been successfully uploaded into firmware.
 #define STRING_VERSION_CONFIG_H __DATE__ " " __TIME__ // build date and time
 #ifndef STRING_CONFIG_H_AUTHOR
-#define STRING_CONFIG_H_AUTHOR "Tinker_18.11-DEV" // Who made the changes.
+#define STRING_CONFIG_H_AUTHOR "Tinker_DXU_17.10" // Who made the changes.
 #endif
 
 // SERIAL_PORT selects which serial port should be used for communication with the host.
@@ -66,7 +66,7 @@
 
 // This defines the number of extruders
 #ifndef EXTRUDERS
-#define EXTRUDERS 1
+#define EXTRUDERS 2
 #endif
 
 //// The following define selects which power supply you have. Please choose the one that matches your setup
@@ -74,6 +74,8 @@
 // 2 = X-Box 360 203Watts (the blue wire connected to PS_ON and the red wire to VCC)
 
 #define POWER_SUPPLY 2
+
+#define UM2PLUS
 
 
 //===========================================================================
@@ -158,7 +160,7 @@
 #define MAX_REDUNDANT_TEMP_SENSOR_DIFF 10
 
 // Actual temperature must be close to target for this long before M109 returns success
-#define TEMP_RESIDENCY_TIME 3   // (seconds)
+#define TEMP_RESIDENCY_TIME 750 // (milliseconds)
 #define TEMP_HYSTERESIS 3       // (degC) range of +/- temperatures considered "close" to the target one
 #define TEMP_WINDOW     2       // (degC) Window around target to start the residency timer x degC early.
 
@@ -174,13 +176,13 @@
 // This feature exists to protect your hotend from overheating accidentally, but *NOT* from thermistor short/failure!
 // You should use MINTEMP for thermistor short/failure protection.
 #ifndef HEATER_0_MAXTEMP
-    #define HEATER_0_MAXTEMP 275
+    #define HEATER_0_MAXTEMP 315
 #endif
 #ifndef HEATER_1_MAXTEMP
-    #define HEATER_1_MAXTEMP 275
+    #define HEATER_1_MAXTEMP 315
 #endif
 #ifndef HEATER_2_MAXTEMP
-    #define HEATER_2_MAXTEMP 275
+    #define HEATER_2_MAXTEMP 315
 #endif
 #define BED_MAXTEMP 200
 
@@ -203,7 +205,7 @@
   //#define PID_DEBUG // Sends debug data to the serial port.
   //#define PID_OPENLOOP 1 // Puts PID in open loop. M104/M140 sets the output power from 0 to PID_MAX
  #ifdef __AVR
-  #define PID_FUNCTIONAL_RANGE 20 // If the temperature difference between the target temperature and the actual temperature
+  #define PID_FUNCTIONAL_RANGE 25 // If the temperature difference between the target temperature and the actual temperature
                                   // is more then PID_FUNCTIONAL_RANGE then the PID will be shut off and the heater will be set to min/max.
  #else
   #define PID_FUNCTIONAL_RANGE 100 // simulator mode
@@ -218,17 +220,10 @@
     //#define  DEFAULT_Ki 1.08
     //#define  DEFAULT_Kd 114
 
-#ifdef UM2PLUS
-// Ultimaker2 JarJar
-    #define  DEFAULT_Kp 10.03
-    #define  DEFAULT_Ki 1.50
-    #define  DEFAULT_Kd 70.0
-#else
-// Ultimaker2
-    #define  DEFAULT_Kp 10.0
-    #define  DEFAULT_Ki 2.5
-    #define  DEFAULT_Kd 100.0
-#endif // UM2PLUS
+// Ultimaker2s
+    #define  DEFAULT_Kp 13.2
+    #define  DEFAULT_Ki 1.17
+    #define  DEFAULT_Kd 37.31
 
 // Makergear
 //    #define  DEFAULT_Kp 7.0
@@ -275,9 +270,11 @@
 //    #define  DEFAULT_bedKd 1675.16
 
 //Ultimaker2
-    #define  DEFAULT_bedKp 120.0
-    #define  DEFAULT_bedKi 23.5
-    #define  DEFAULT_bedKd 165.0
+    #define  DEFAULT_bedKp 72.15
+    #define  DEFAULT_bedKi 13.85
+    #define  DEFAULT_bedKd 94.0
+
+// FIND YOUR OWN: "M303 E-1 C8 S90" to run autotune on the bed at 90 degreesC for 8 cycles.
 #endif // PIDTEMPBED
 
 
@@ -345,14 +342,10 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 #define DISABLE_E false // For all extruders
 
 #ifdef UM2PLUS
-  #define DEFAULT_AXIS_DIR 0xFD
+#define DEFAULT_AXIS_DIR 0xFD
 #else
-  #ifdef UM2GO
-    #define DEFAULT_AXIS_DIR 0x1D
-  #else
-    #define DEFAULT_AXIS_DIR 0x15
-  #endif // UM2GO
-#endif // UM2PLUS
+#define DEFAULT_AXIS_DIR 0x15
+#endif
 
 #define INVERT_X_DIR  (axis_direction &  1)
 #define INVERT_Y_DIR  (axis_direction &  2)
@@ -367,54 +360,37 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 #define Y_HOME_DIR 1
 #define Z_HOME_DIR 1
 
-#define min_software_endstops true // If true, axis won't move to coordinates less than HOME_POS.
-#define max_software_endstops true  // If true, axis won't move to coordinates greater than the defined lengths below.
-
+#define MIN_SOFTWARE_ENDSTOPS // If defined, axis won't move to coordinates less than MIN_POS.
+#define MAX_SOFTWARE_ENDSTOPS // If defined, axis won't move to coordinates greater than MAX_POS
 // Travel limits after homing
-
-#ifndef X_MIN_POS
-  #ifdef UM2GO
-    #define X_MIN_POS -14
-  #else
-    #define X_MIN_POS 0
-  #endif // UM2GO
-#endif // X_MIN_POS
-
 #ifndef X_MAX_POS
-  #ifdef UM2GO
-    #define X_MAX_POS 122
-  #else
-    #define X_MAX_POS 230
-  #endif // UM2GO
-#endif // X_MAX_POS
-
-#ifndef Y_MIN_POS
-  #define Y_MIN_POS 0
-#endif // Y_MIN_POS
-
+  #define X_MAX_POS 230
+#endif
+#ifndef X_MIN_POS
+#define X_MIN_POS 0
+#endif
 #ifndef Y_MAX_POS
-  #ifdef UM2GO
-    #define Y_MAX_POS 124
-  #else
-    #define Y_MAX_POS 225
-  #endif // UM2GO
-#endif // Y_MAX_POS
-
+#define Y_MAX_POS 225
+#endif
+#ifndef Y_MIN_POS
+#define Y_MIN_POS 0
+#endif
+#ifndef Z_MAX_POS
+#define Z_MAX_POS 225
+#endif
 #ifndef Z_MIN_POS
   #define Z_MIN_POS 0
-#endif // Z_MIN_POS
-
-#ifndef Z_MAX_POS
-  #ifdef UM2GO
-    #define Z_MAX_POS 130
-  #else
-    #define Z_MAX_POS 230
-  #endif // UM2GO
-#endif // Z_MAX_POS
+#endif
 
 #define X_MAX_LENGTH (X_MAX_POS - X_MIN_POS)
 #define Y_MAX_LENGTH (Y_MAX_POS - Y_MIN_POS)
 #define Z_MAX_LENGTH (Z_MAX_POS - Z_MIN_POS)
+
+
+#if EXTRUDERS > 1
+// safe y-position for dual head mode
+#define DUAL_X_MAX_POS (dock_position[X_AXIS] - 8.0f)
+#endif // EXTRUDERS
 
 // The position of the homing switches
 //#define MANUAL_HOME_POSITIONS  // If defined, MANUAL_*_HOME_POS below will be used
@@ -446,8 +422,8 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 // Offset of the extruders (uncomment if using more than one and relying on firmware to position when changing).
 // The offset has to be X=0, Y=0 for the extruder 0 hotend (default extruder).
 // For the other hotends it is their distance from the extruder 0 hotend.
-// #define EXTRUDER_OFFSET_X {0.0, 20.00} // (in mm) for each extruder, offset of the hotend on the X axis
-// #define EXTRUDER_OFFSET_Y {0.0, 5.00}  // (in mm) for each extruder, offset of the hotend on the Y axis
+#define EXTRUDER_OFFSET_X {0.0, 19.00} // (in mm) for each extruder, offset of the hotend on the X axis
+#define EXTRUDER_OFFSET_Y {0.0, 0.00}  // (in mm) for each extruder, offset of the hotend on the Y axis
 
 // The speed change that does not require acceleration (i.e. the software might assume it can be done instantaneously)
 #define DEFAULT_XYJERK                20.0    // (mm/sec)
@@ -455,13 +431,7 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 #define DEFAULT_EJERK                 5.0    // (mm/sec)
 
 //Length of the bowden tube. Used for the material load/unload procedure.
-#ifndef FILAMENT_BOWDEN_LENGTH
-  #ifdef UM2GO
-    #define FILAMENT_BOWDEN_LENGTH 550
-  #else
-    #define FILAMENT_BOWDEN_LENGTH 705
-  #endif // UM2GO
-#endif // FILAMENT_BOWDEN_LENGTH
+#define FILAMANT_BOWDEN_LENGTH        705
 
 //===========================================================================
 //=============================Additional Features===========================
@@ -619,6 +589,7 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 // which is not ass annoying as with the hardware PWM. On the other hand, if this frequency
 // is too low, you should also increment SOFT_PWM_SCALE.
 //#define FAN_SOFT_PWM
+//#define FAN2_SOFT_PWM
 
 // Incrementing this by 1 will double the software PWM frequency,
 // affecting heaters, and the fan if FAN_SOFT_PWM is enabled.
@@ -628,7 +599,7 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 
 // M240  Triggers a camera by emulating a Canon RC-1 Remote
 // Data from: http://www.doc-diy.net/photo/rc-1_hacked/
-// #define PHOTOGRAPH_PIN     23
+#define PHOTOGRAPH_PIN     13
 
 // SF send wrong arc g-codes when using Arc Point as fillet procedure
 //#define SF_ARC_FIX
@@ -664,9 +635,12 @@ const bool Z_ENDSTOPS_INVERTING = true; // set to true to invert the logic of th
 #define END_OF_PRINT_RECOVERY_SPEED 5 	// speed to recover that assumed retraction at (mm/s)
 #define PRIMING_MM3	50					// number of mm^3 of plastic to extrude when priming
 										// (Ultimaker 2 hot end capacity is approx 80 mm^3)
-#define PRIMING_MM3_PER_SEC 5			// Rate at which to prime head (in mm^3/s)
+#define PRIMING_MM3_PER_SEC 4			// Rate at which to prime head (in mm^3/s)
 										// (Ultimaker 2 upper limit is 8-10)
 #define PRIMING_HEIGHT 30				// Height at which to perform the priming extrusions
+#define PRIMING_MAX_FAN 50              // maximum fan speed (0-255) during priming
+
+#define HEATUP_POSITION_COMMAND "G1 F12000 X%u Y%u"
 
 // Bed leveling wizard configuration
 #define LEVELING_OFFSET 0.1				// Assumed thickness of feeler gauge/paper used in leveling (mm)

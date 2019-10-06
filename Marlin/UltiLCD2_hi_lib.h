@@ -22,14 +22,12 @@ void lcd_scroll_menu(const char* menuNameP, int8_t entryCount, scrollDrawCallbac
 void lcd_progressbar(uint8_t progress);
 void lcd_draw_scroll_entry(uint8_t offsetY, char * buffer, uint8_t flags);
 
+void lcd_cpyreturn(char * buffer);
+
 void lcd_menu_edit_setting();
 
 bool check_heater_timeout();
-bool check_preheat();
-
-#if EXTRUDERS > 1
-void lcd_select_nozzle(menuFunc_t callbackOnSelect = 0, menuFunc_t callbackOnAbort = 0);
-#endif // EXTRUDERS
+bool check_preheat(uint8_t e);
 
 extern uint8_t heater_timeout;
 extern uint16_t backup_temperature[EXTRUDERS];
@@ -44,9 +42,6 @@ extern int16_t lcd_setting_start_value;
 
 extern menuFunc_t postMenuCheck;
 extern uint8_t minProgress;
-
-extern uint16_t lineEntryPos;
-extern int8_t   lineEntryWait;
 
 #define LCD_EDIT_SETTING(_setting, _name, _postfix, _min, _max) do { \
     menu.add_menu(menu_t(lcd_menu_edit_setting)); \
@@ -115,6 +110,13 @@ extern int8_t   lineEntryWait;
 #else
 #define BED_MENU_OFFSET 0
 #endif
+
+#if EXTRUDERS > 1 && defined(FAN2_PIN) && FAN2_PIN > -1
+#define FAN_MENU_OFFSET 1
+#else
+#define FAN_MENU_OFFSET 0
+#endif
+
 
 #define BOTTOM_MENU_YPOS 54
 

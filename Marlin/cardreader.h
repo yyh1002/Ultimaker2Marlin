@@ -51,15 +51,13 @@ public:
   void printingHasFinished();
 
   void getfilename(const uint8_t nr);
-  void getFilenameFromNr(uint8_t nr, char* buffer, uint8_t maxlen);
-  uint8_t getnrfilenames();
-
+  void getFilenameFromNr(char* buffer, uint8_t nr);
+  uint16_t getnrfilenames();
 
   void ls();
   void chdir(const char * relpath);
   void updir();
   void setroot();
-
 
   FORCE_INLINE bool isFileOpen() { return file.isOpen(); }
   FORCE_INLINE bool eof() { return sdpos>=filesize ;}
@@ -94,7 +92,7 @@ public:
 
   FORCE_INLINE const char * currentFileName() const { return filename; }
   FORCE_INLINE const char * currentLongFileName() const { return longFilename; }
-  FORCE_INLINE void setLongFilename(const char *name) { strncpy(longFilename, name, LONG_FILENAME_LENGTH); }
+  FORCE_INLINE void setLongFilename(const char *name) { strncpy(longFilename, name, LONG_FILENAME_LENGTH-1); }
   FORCE_INLINE void truncateLongFilename(uint8_t pos) { longFilename[pos] = '\0'; if (char *point = strchr(longFilename, '.')) *point = '\0'; }
   FORCE_INLINE void clearLongFilename() { longFilename[0] = '\0'; }
 
@@ -112,7 +110,7 @@ public:
 
 private:
   char filename[13];
-  char longFilename[LONG_FILENAME_LENGTH+1];
+  char longFilename[LONG_FILENAME_LENGTH];
 
   uint8_t state;
   SdFile root,*curDir,workDir,workDirParents[MAX_DIR_DEPTH];
@@ -126,7 +124,7 @@ private:
   uint32_t sdpos ;
 
   LsAction lsAction; //stored for recursion.
-  uint8_t nrFiles; //counter for the files in the current directory and recycled as position counter for getting the nrFiles'th name in the directory.
+  int16_t nrFiles; //counter for the files in the current directory and recycled as position counter for getting the nrFiles'th name in the directory.
   char* diveDirName;
   void lsDive(SdFile &parent, SdFile** parents, uint8_t dirDepth);
 };
